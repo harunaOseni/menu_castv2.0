@@ -17,7 +17,7 @@ To use the API, you must register your sending server and recieve a unique ID to
 Clone this repository.
 
 ```bash
-git clone https://github.com/Laur04/multicast-menu.git ~/multicast-menu
+git clone https://github.com/harunaOseni/menu_castv2.0.git ~/multicast-menu
 ```
 Migrate and run the development server.
 
