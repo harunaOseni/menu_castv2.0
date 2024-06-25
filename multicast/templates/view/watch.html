@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% load static %}
+
+{% block head %}
+<link href="https://vjs.zencdn.net/7.20.3/video-js.min.css" rel="stylesheet" />
+{% endblock %}
+
+{% block main %}
+<div class="center-div">
+    <video-js id="video-player" class="vjs-default-skin" controls preload="auto" width="640" height="264">
+        <source src="{{ watch_file }}" type="application/x-mpegURL">
+    </video-js>
+
+    <script src="https://vjs.zencdn.net/7.20.3/video.min.js"></script>
+
+    <script>
+        var player = videojs('video-player', {
+            html5: {
+                vhs: {
+                    overrideNative: true,
+                    enableLowInitialPlaylist: true,
+                    allowSeeksWithinUnsafeLiveWindow: true,
+                    handlePartialData: true,
+                    timeout: 10000  // Increase timeout to 10 seconds
+                }
+            },
+            liveui: true,
+            liveTracker: {
+                trackingThreshold: 0
+            }
+        });
+
+        var retryCount = 0;
+        var maxRetries = 5;
+
+        function reloadSource() {
+            player.src({ type: "application/x-mpegURL", src: "{{ watch_file }}?_=" + new Date().getTime() });
+            player.play().catch(function (error) {
+                console.log("Play failed after reload: " + error);
+            });
+        }
+
+        player.ready(function () {
+            player.on('error', function (e) {
+                console.error('Video player error:', player.error());
+                if (retryCount < maxRetries) {
+                    retryCount++;
+                    console.log(`Attempting to recover from error. Retry ${retryCount} of ${maxRetries}`);
+                    reloadSource();
+                } else {
+                    console.error('Max retries reached. Please refresh the page.');
+                }
+            });
+
+            player.on('waiting', function () {
+                console.log('Video is waiting for more data.');
+            });
+
+            player.on('canplay', function () {
+                console.log('Video can start playing.');
+            });
+
+            player.on('loadstart', function () {
+                console.log('Started to load data.');
+            });
+
+            player.on('loadeddata', function () {
+                console.log('Loaded data.');
+            });
+
+            player.on('canplaythrough', function () {
+                console.log('Can play through without stopping.');
+                retryCount = 0;  // Reset retry count on successful playthrough
+            });
+        });
+
+        // Monitor for stalls
+        var lastPlayheadPosition = 0;
+        var stallCount = 0;
+        var playbackMonitor = setInterval(function () {
+            if (player.paused() || player.ended()) {
+                return;
+            }
+            if (player.currentTime() === lastPlayheadPosition) {
+                stallCount++;
+                if (stallCount > 5) {  // If stalled for more than 5 seconds
+                    console.log("Playback appears to be stalled. Reloading source.");
+                    reloadSource();
+                    stallCount = 0;
+                }
+            } else {
+                stallCount = 0;
+            }
+            lastPlayheadPosition = player.currentTime();
+        }, 1000);
+
+        // Periodically check if the player is in an error state
+        setInterval(function () {
+            if (player.error()) {
+                console.log('Player is in an error state. Attempting to recover.');
+                reloadSource();
+            }
+        }, 5000);
+
+        // Reload the source every 30 seconds to ensure fresh content
+        setInterval(function () {
+            if (!player.paused() && !player.ended()) {
+                var currentTime = player.currentTime();
+                reloadSource();
+                player.currentTime(currentTime);
+            }
+        }, 30000);
+    </script>
+</div>
+{% endblock %}
