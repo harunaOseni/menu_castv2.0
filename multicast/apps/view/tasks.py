@@ -142,19 +142,6 @@ def open_tunnel(tunnel_id):
             raise Exception(error_msg)
 
 
-# @shared_task
-# def start_ffmpeg(tunnel_id):
-#     tunnel = get_object_or_404(Tunnel, id=tunnel_id)
-
-#     proc = subprocess.Popen([
-#         f"ffmpeg -i udp://{LOCAL_LOOPBACK}:{tunnel.get_udp_port_number()} -c copy -f hls {MEDIA_ROOT}/tunnel-files/{tunnel.get_filename()}"
-#     ], shell=True, stdin=None, stderr=None)
-
-#     tunnel.ffmpeg_pid = proc.pid
-#     tunnel.ffmpeg_up = True
-#     tunnel.save()
-
-
 @shared_task
 def start_ffmpeg(tunnel_id):
     tunnel = get_object_or_404(Tunnel, id=tunnel_id)
@@ -177,10 +164,21 @@ def start_ffmpeg(tunnel_id):
         "-of",
         "json",
     ]
-    with open(ffprobe_log_file, "w") as log:
-        subprocess.run(
-            ffprobe_command, stdout=log, stderr=subprocess.STDOUT, check=True
-        )
+    try:
+        with open(ffprobe_log_file, "w") as log:
+            subprocess.run(
+                ffprobe_command,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                check=True,
+                timeout=30,
+            )
+    except subprocess.TimeoutExpired:
+        logger.error(f"FFprobe timed out for tunnel {tunnel_id}")
+        return f"FFprobe timed out for tunnel {tunnel_id}"
+    except subprocess.CalledProcessError as e:
+        logger.error(f"FFprobe failed for tunnel {tunnel_id}: {str(e)}")
+        return f"FFprobe failed for tunnel {tunnel_id}: {str(e)}"
 
     # Improved FFmpeg command
     output_file = os.path.join(MEDIA_ROOT, "tunnel-files", tunnel.get_filename())
@@ -196,30 +194,30 @@ def start_ffmpeg(tunnel_id):
         "1",
         "-reconnect_delay_max",
         "2",
-        "-c",
-        "copy",
+        "-c:v",
+        "libx264",  # Transcode video instead of copy
+        "-preset",
+        "ultrafast",  # Use ultrafast preset for low latency
+        "-tune",
+        "zerolatency",
+        "-c:a",
+        "aac",  # Transcode audio to AAC
+        "-b:a",
+        "128k",  # Set audio bitrate
         "-f",
         "hls",
         "-hls_time",
-        "10",
+        "2",  # Reduce segment time for lower latency
         "-hls_list_size",
-        "6",
+        "10",
         "-hls_flags",
         "delete_segments+append_list+discont_start",
         "-hls_segment_type",
         "mpegts",
         "-hls_segment_filename",
         f"{output_file}_%03d.ts",
-        "-hls_init_time",
-        "5",
-        "-hls_allow_cache",
-        "1",
-        "-hls_init_start",
-        "0",
         "-hls_playlist_type",
         "event",
-        "-tune",
-        "zerolatency",
         "-metadata",
         f"service_name=Stream {tunnel_id}",
         "-metadata",
@@ -227,11 +225,22 @@ def start_ffmpeg(tunnel_id):
         output_file,
     ]
 
-    with open(ffmpeg_log_file, "w") as log:
-        proc = subprocess.Popen(ffmpeg_command, stdout=log, stderr=subprocess.STDOUT)
+    try:
+        with open(ffmpeg_log_file, "w") as log:
+            proc = subprocess.Popen(
+                ffmpeg_command, stdout=log, stderr=subprocess.STDOUT
+            )
 
-    tunnel.ffmpeg_pid = proc.pid
-    tunnel.ffmpeg_up = True
-    tunnel.save()
+        # Wait for a short time to check if FFmpeg starts successfully
+        time.sleep(5)
+        if proc.poll() is not None:
+            raise subprocess.CalledProcessError(proc.returncode, ffmpeg_command)
 
-    return f"FFmpeg started for tunnel {tunnel_id} with PID {proc.pid}"
+        tunnel.ffmpeg_pid = proc.pid
+        tunnel.ffmpeg_up = True
+        tunnel.save()
+
+        return f"FFmpeg started for tunnel {tunnel_id} with PID {proc.pid}"
+    except Exception as e:
+        logger.error(f"Failed to start FFmpeg for tunnel {tunnel_id}: {str(e)}")
+        return f"Failed to start FFmpeg for tunnel {tunnel_id}: {str(e)}"
