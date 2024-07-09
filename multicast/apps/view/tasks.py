@@ -12,6 +12,7 @@ from .models import Stream, Tunnel
 from .util.stream_preview import snapshot_multicast_stream, resize_image
 import logging
 import time
+import glob
 
 logger = logging.getLogger(__name__)
 
@@ -195,21 +196,21 @@ def start_ffmpeg(tunnel_id):
         "-reconnect_delay_max",
         "2",
         "-c:v",
-        "libx264",  # Transcode video instead of copy
+        "libx264",
         "-preset",
-        "ultrafast",  # Use ultrafast preset for low latency
+        "ultrafast",
         "-tune",
         "zerolatency",
         "-c:a",
-        "aac",  # Transcode audio to AAC
+        "aac",
         "-b:a",
-        "128k",  # Set audio bitrate
+        "128k",
         "-f",
         "hls",
         "-hls_time",
-        "2",  # Reduce segment time for lower latency
+        "2",
         "-hls_list_size",
-        "10",
+        "4",  # Keep only 4 segments in the playlist
         "-hls_flags",
         "delete_segments+append_list+discont_start",
         "-hls_segment_type",
@@ -224,6 +225,15 @@ def start_ffmpeg(tunnel_id):
         f"service_provider=Your Service Name",
         output_file,
     ]
+
+    def cleanup_ts_files():
+        ts_files = sorted(glob.glob(f"{output_file}_*.ts"))
+        for old_file in ts_files[:-4]:  # Keep only the 4 most recent files
+            try:
+                os.remove(old_file)
+                logger.info(f"Deleted old TS file: {old_file}")
+            except OSError as e:
+                logger.error(f"Error deleting file {old_file}: {e}")
 
     try:
         with open(ffmpeg_log_file, "w") as log:
@@ -240,7 +250,16 @@ def start_ffmpeg(tunnel_id):
         tunnel.ffmpeg_up = True
         tunnel.save()
 
+        # Start a background task to clean up old TS files periodically
+        cleanup_interval = 10  # seconds
+        while proc.poll() is None:  # While FFmpeg is still running
+            cleanup_ts_files()
+            time.sleep(cleanup_interval)
+
         return f"FFmpeg started for tunnel {tunnel_id} with PID {proc.pid}"
     except Exception as e:
         logger.error(f"Failed to start FFmpeg for tunnel {tunnel_id}: {str(e)}")
         return f"Failed to start FFmpeg for tunnel {tunnel_id}: {str(e)}"
+    finally:
+        # Ensure one last cleanup is performed when the task ends
+        cleanup_ts_files()
