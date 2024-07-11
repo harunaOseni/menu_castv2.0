@@ -22,35 +22,66 @@
                     enableLowInitialPlaylist: true,
                     allowSeeksWithinUnsafeLiveWindow: true,
                     handlePartialData: true,
-                    timeout: 10000  // Increase timeout to 10 seconds
+                    timeout: 30000,  // Increase timeout to 30 seconds
+                    blacklistDuration: 60,  // Blacklist duration for failed segments
+                    bandwidth: 5000000,  // Initial bandwidth estimate (5 Mbps)
+                    smoothQualityChange: true,
+                    maxPlaylistRetries: 10,
                 }
             },
             liveui: true,
             liveTracker: {
                 trackingThreshold: 0
-            }
+            },
+            errorDisplay: false,  // Disable default error display
         });
 
         var retryCount = 0;
-        var maxRetries = 5;
+        var maxRetries = 10;
+        var exponentialBackoff = 1000;  // Start with 1 second
 
         function reloadSource() {
-            player.src({ type: "application/x-mpegURL", src: "{{ watch_file }}?_=" + new Date().getTime() });
-            player.play().catch(function (error) {
-                console.log("Play failed after reload: " + error);
+            var currentTime = player.currentTime();
+            player.src({
+                type: "application/x-mpegURL",
+                src: "{{ watch_file }}?_=" + new Date().getTime()
             });
+            player.play().then(function () {
+                player.currentTime(currentTime);
+            }).catch(function (error) {
+                console.log("Play failed after reload: " + error);
+                handlePlayError(error);
+            });
+        }
+
+        function handlePlayError(error) {
+            if (retryCount < maxRetries) {
+                retryCount++;
+                var delay = Math.min(exponentialBackoff * Math.pow(2, retryCount - 1), 60000);  // Max 60 seconds
+                console.log(`Attempting to recover from error. Retry ${retryCount} of ${maxRetries} in ${delay}ms`);
+                setTimeout(reloadSource, delay);
+            } else {
+                console.error('Max retries reached. Please refresh the page.');
+                displayCustomError("Unable to play the video. Please try refreshing the page.");
+            }
+        }
+
+        function displayCustomError(message) {
+            var errorDisplay = player.el().querySelector('.vjs-error-display');
+            if (!errorDisplay) {
+                errorDisplay = document.createElement('div');
+                errorDisplay.className = 'vjs-error-display';
+                player.el().appendChild(errorDisplay);
+            }
+            errorDisplay.innerHTML = message;
+            errorDisplay.style.display = 'block';
         }
 
         player.ready(function () {
             player.on('error', function (e) {
-                console.error('Video player error:', player.error());
-                if (retryCount < maxRetries) {
-                    retryCount++;
-                    console.log(`Attempting to recover from error. Retry ${retryCount} of ${maxRetries}`);
-                    reloadSource();
-                } else {
-                    console.error('Max retries reached. Please refresh the page.');
-                }
+                var error = player.error();
+                console.error('Video player error:', error.code, error.message);
+                handlePlayError(error);
             });
 
             player.on('waiting', function () {
@@ -72,6 +103,14 @@
             player.on('canplaythrough', function () {
                 console.log('Can play through without stopping.');
                 retryCount = 0;  // Reset retry count on successful playthrough
+                exponentialBackoff = 1000;  // Reset backoff
+            });
+
+            player.on('playing', function () {
+                var errorDisplay = player.el().querySelector('.vjs-error-display');
+                if (errorDisplay) {
+                    errorDisplay.style.display = 'none';
+                }
             });
         });
 
@@ -84,10 +123,13 @@
             }
             if (player.currentTime() === lastPlayheadPosition) {
                 stallCount++;
-                if (stallCount > 5) {  // If stalled for more than 5 seconds
-                    console.log("Playback appears to be stalled. Reloading source.");
-                    reloadSource();
-                    stallCount = 0;
+                if (stallCount > 10) {  // If stalled for more than 10 seconds
+                    console.log("Playback appears to be stalled. Attempting to recover.");
+                    player.currentTime(player.currentTime() + 0.1);  // Try to nudge playback
+                    if (stallCount > 20) {  // If still stalled after 20 seconds, reload
+                        reloadSource();
+                        stallCount = 0;
+                    }
                 }
             } else {
                 stallCount = 0;
@@ -95,22 +137,62 @@
             lastPlayheadPosition = player.currentTime();
         }, 1000);
 
-        // Periodically check if the player is in an error state
+        // Adaptive quality selection
+        player.on('levelswitch', function (event, data) {
+            console.log('Quality level switched to ' + data.level.height + 'p');
+        });
+
+        // Network speed monitoring
+        var speedSamples = [];
+        player.on('progress', function () {
+            var loadTime = player.buffered().end(0) - player.currentTime();
+            var speed = loadTime > 0 ? (player.bufferedPercent() * 100) / loadTime : 0;
+            speedSamples.push(speed);
+            if (speedSamples.length > 10) speedSamples.shift();
+            var avgSpeed = speedSamples.reduce((a, b) => a + b, 0) / speedSamples.length;
+            console.log('Average network speed: ' + avgSpeed.toFixed(2) + ' Mbps');
+        });
+
+        // Periodic health check
         setInterval(function () {
             if (player.error()) {
                 console.log('Player is in an error state. Attempting to recover.');
-                reloadSource();
+                handlePlayError(player.error());
+            } else if (!player.paused() && !player.ended()) {
+                // Check if we're far behind live edge for live streams
+                if (player.liveTracker && player.liveTracker.isLive()) {
+                    var behindLive = player.liveTracker.liveCurrentTime() - player.currentTime();
+                    if (behindLive > 30) {
+                        console.log('Far behind live edge. Seeking to live.');
+                        player.liveTracker.seekToLiveEdge();
+                    }
+                }
             }
-        }, 5000);
+        }, 10000);
 
-        // Reload the source every 30 seconds to ensure fresh content
-        setInterval(function () {
-            if (!player.paused() && !player.ended()) {
-                var currentTime = player.currentTime();
-                reloadSource();
-                player.currentTime(currentTime);
+        // Handle visibility change
+        document.addEventListener('visibilitychange', function () {
+            if (document.hidden) {
+                player.pause();
+            } else {
+                player.play().catch(function (error) {
+                    console.log("Auto-play on visibility change failed:", error);
+                    handlePlayError(error);
+                });
             }
-        }, 30000);
+        });
+
+        // Handle network status changes
+        window.addEventListener('online', function () {
+            console.log('Network is back online. Attempting to resume playback.');
+            reloadSource();
+        });
+
+        window.addEventListener('offline', function () {
+            console.log('Network is offline. Pausing playback.');
+            player.pause();
+            displayCustomError("Network connection lost. Waiting for connection to resume.");
+        });
     </script>
 </div>
 {% endblock %}
