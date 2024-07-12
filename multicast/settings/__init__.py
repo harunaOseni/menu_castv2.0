@@ -14,7 +14,6 @@ SECRET_KEY = "BGpQn4zCYDQlJNxO3790oZkf9AzimUeISww7OvmGSDH7tyjwEIZIs0xTrx3q_TtOil
 # Basic Settings
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
 # Applications
 INSTALLED_APPS = [
     "multicast.apps.add",
@@ -62,7 +61,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "multicast.wsgi.application"
 
-
 # Database
 DATABASES = {
     "default": {
@@ -70,7 +68,6 @@ DATABASES = {
         "NAME": BASE_DIR / "db.sqlite3",
     }
 }
-
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -88,12 +85,10 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-
 # Login settings
 LOGIN_URL = "/login"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/"
-
 
 # Internationalization
 LANGUAGE_CODE = "en-us"
@@ -106,7 +101,6 @@ USE_L10N = True
 
 USE_TZ = True
 
-
 # Static files (CSS, JavaScript, Images)
 STATICFILES_DIRS = [
     BASE_DIR / "static",
@@ -115,6 +109,9 @@ STATICFILES_DIRS = [
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "serve"
 
+# WhiteNoise settings
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
@@ -122,7 +119,6 @@ DEBUG = True
 
 # Defaults
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-
 
 # Celery settings
 CELERY_BROKER_URL = "redis://localhost:6379"
@@ -155,7 +151,6 @@ TRENDING_STREAM_USAGE_WEIGHT = 0.9
 TRENDING_STREAM_INIT_SCORE = 1.0
 TRENDING_STREAM_MAX_SIZE = 20
 TRENDING_STREAM_MAX_VISIBLE_SIZE = 10
-
 
 # Import secret.py
 try:
