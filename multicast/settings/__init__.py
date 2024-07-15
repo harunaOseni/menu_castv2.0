@@ -2,6 +2,8 @@ from __future__ import absolute_import
 import celery.schedules
 from pathlib import Path
 import mimetypes
+import dj_database_url
+import os
 
 from ..celery import app as celery_app
 
@@ -151,6 +153,10 @@ TRENDING_STREAM_USAGE_WEIGHT = 0.9
 TRENDING_STREAM_INIT_SCORE = 1.0
 TRENDING_STREAM_MAX_SIZE = 20
 TRENDING_STREAM_MAX_VISIBLE_SIZE = 10
+
+# Check for Heroku environment
+if "DATABASE_URL" in os.environ:
+    DATABASES = {"default": dj_database_url.config()}
 
 # Import secret.py
 try:
