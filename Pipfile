@@ -20,4 +20,4 @@ requests = "~=2.26.0"
 scapy = "~=2.4.5"
 
 [pipenv]
-allow_prereleases = true
+allow_prereleases = truewhitenoise = "~=6.7.0"
