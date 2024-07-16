@@ -1,1 +1,1 @@
-web: pip install -r requirements.txt && gunicorn multicast.wsgi
+web: gunicorn multicast.wsgi
