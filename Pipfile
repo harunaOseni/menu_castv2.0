@@ -18,6 +18,7 @@ psycopg2-binary = "~=2.9.3"
 redis = "~=4.0.1"
 requests = "~=2.26.0"
 scapy = "~=2.4.5"
+whitenoise = "~=6.7.0"
 
 [pipenv]
-allow_prereleases = truewhitenoise = "~=6.7.0"
+allow_prereleases = true
