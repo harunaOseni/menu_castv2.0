@@ -6,7 +6,6 @@ dump.rdb
 
 multicast/media/
 
-Pipfile.lock
 
 __pycache__/
 *.pyc
