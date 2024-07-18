@@ -151,8 +151,8 @@ CELERY_BEAT_SCHEDULE = {
 # CORS Header
 CORS_ALLOW_ALL_ORIGINS = True
 
-# Allow every host
-ALLOWED_HOSTS = ["*"]
+# Allow every host and custom domain
+ALLOWED_HOSTS = ["*", "www.treedn.net"]
 
 # Trending streams constants
 TRENDING_STREAM_USAGE_WEIGHT = 0.9
