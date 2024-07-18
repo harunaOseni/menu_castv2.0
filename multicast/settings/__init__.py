@@ -64,11 +64,17 @@ TEMPLATES = [
 WSGI_APPLICATION = "multicast.wsgi.application"
 
 # Database
+# DATABASES = {
+#     "default": {
+#         "ENGINE": "django.db.backends.sqlite3",
+#         "NAME": BASE_DIR / "db.sqlite3",
+#     }
+# }
+
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
+    "default": dj_database_url.parse(
+        "postgresql://multicast-db_owner:g2YlDnE6oKtb@ep-tight-math-a580rdl2.us-east-2.aws.neon.tech/multicast-db?sslmode=require"
+    )
 }
 
 # Password validation
