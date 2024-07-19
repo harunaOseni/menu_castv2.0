@@ -4,6 +4,7 @@ from pathlib import Path
 import mimetypes
 import dj_database_url
 import os
+from importlib_metadata import entry_points
 
 from ..celery import app as celery_app
 
