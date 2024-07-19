@@ -36,3 +36,4 @@ wcwidth==0.2.13
 whitenoise==6.7.0
 wrapt==1.16.0
 dj-database-url==2.2.0
+importlib-metadata==7.1.0
