@@ -10,7 +10,7 @@ cryptography = "~=35.0.0"
 django = "~=3.2.14"
 django-cors-headers = "~=3.13.0"
 djangorestframework = "~=3.13.1"
-gunicorn = "~=20.1.0"
+gunicorn = "==20.1.0"
 ipwhois = "~=1.2.0"
 Pillow = "~=9.0.1"
 psutil = "~=5.8.0"
@@ -21,6 +21,12 @@ scapy = "~=2.4.5"
 whitenoise = "~=6.7.0"
 importlib-metadata = "==4.13.0"
 setuptools = "==59.6.0"
+pkg_resources = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.9"
 
 [pipenv]
 allow_prereleases = true
