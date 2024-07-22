@@ -172,7 +172,7 @@ def start_ffmpeg(tunnel_id):
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 check=True,
-                timeout=30,
+                timeout=60,
             )
     except subprocess.TimeoutExpired:
         logger.error(f"FFprobe timed out for tunnel {tunnel_id}")
