@@ -36,43 +36,44 @@ def snapshot_multicast_stream(str_url, str_amt_relay, str_snapshot_path):
         VLC command-line help, https://wiki.videolan.org/VLC_command-line_help
         Command-line interface, https://wiki.videolan.org/Command-line_interface/
     """
-    vlc_process = subprocess.Popen([
-        "/usr/bin/sudo",
-        "-u",
-        "web",
-        # Path to local VLC
-        "/usr/bin/cvlc",
-        # Stream URL
-        str_url,
-        # AMT Relay
-        "--amt-relay=" + str_amt_relay,
-        # Set the timeout for the native multicast to 2 seconds
-        "--amt-native-timeout=2",
-        # Run in command line mode
-        "--intf=rc",
-        # Don't play audio
-        "--no-audio",
-        # Send your video to picture files
-        "--video-filter=scene",
-        # Format of the output images (png, jpeg, ...).
-        "--scene-format=jpg",
-        # Directory path where images files should be saved.
-        "--scene-path=" + str_snapshot_path,
-        # Ratio of images to record. 3 means that one image out of three is recorded.
-        "--scene-ratio=240",
-        # Framecount to use on frametype lookahead.
-        "--sout-x264-lookahead=10",
-        # Default tune setting used
-        "--sout-x264-tune=stillimage",
-        # This is the video output method used by VLC.
-        "--vout=dummy",
-        # The stream will run this duration( in seconds).
-        "--run-time=15",
-        # Special item to quit VLC
-        "vlc://quit"
-        # Turn off all messages on the console.
-        # "s--quiet"
-    ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    vlc_process = subprocess.Popen(
+        [
+            "/usr/bin/cvlc",
+            # Stream URL
+            str_url,
+            # AMT Relay
+            "--amt-relay=" + str_amt_relay,
+            # Set the timeout for the native multicast to 2 seconds
+            "--amt-native-timeout=2",
+            # Run in command line mode
+            "--intf=rc",
+            # Don't play audio
+            "--no-audio",
+            # Send your video to picture files
+            "--video-filter=scene",
+            # Format of the output images (png, jpeg, ...).
+            "--scene-format=jpg",
+            # Directory path where images files should be saved.
+            "--scene-path=" + str_snapshot_path,
+            # Ratio of images to record. 3 means that one image out of three is recorded.
+            "--scene-ratio=240",
+            # Framecount to use on frametype lookahead.
+            "--sout-x264-lookahead=10",
+            # Default tune setting used
+            "--sout-x264-tune=stillimage",
+            # This is the video output method used by VLC.
+            "--vout=dummy",
+            # The stream will run this duration( in seconds).
+            "--run-time=15",
+            # Special item to quit VLC
+            "vlc://quit",
+            # Turn off all messages on the console.
+            # "s--quiet"
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
+    )
 
     try:
         # Read the data from the stdout and stderr.
@@ -109,7 +110,9 @@ def resize_image(str_input_file, str_output_file, i_width=None, i_height=None):
     if str_output_file is None:
         ValueError("Illegal argument: str_output_file is null!")
     if i_width is None and i_height is None:
-        ValueError("Illegal combination of arguments: i_width and i_height are both null!")
+        ValueError(
+            "Illegal combination of arguments: i_width and i_height are both null!"
+        )
 
     # Load the image
     img = Image.open(str_input_file)
