@@ -5,7 +5,7 @@ verify_ssl = true
 
 [packages]
 dj-database-url = "~=2.2.0"
-celery = "~=4.4.7"
+celery = "~=5.2.2"
 cryptography = "~=35.0.0"
 django = "~=3.2.14"
 django-cors-headers = "~=3.13.0"
@@ -19,7 +19,7 @@ redis = "~=4.0.1"
 requests = "~=2.26.0"
 scapy = "~=2.4.5"
 whitenoise = "~=6.7.0"
-importlib-metadata = "~=4.13.0"
+importlib-metadata = "~=7.1.0"
 
 [pipenv]
 allow_prereleases = true
