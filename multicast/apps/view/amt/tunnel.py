@@ -106,6 +106,7 @@ def get_relay_ip(relay):
 
 
 def setup_amt_tunnel(relay, amt_port, multicast, source):
+    logger.info(f"Attempting to set up AMT tunnel with relay {relay}")
     s = setup_socket(amt_port)
     logger.info(f"Socket set up on port {amt_port}")
 
@@ -114,6 +115,7 @@ def setup_amt_tunnel(relay, amt_port, multicast, source):
     udp_layer = UDP(sport=amt_port, dport=2268)
     nonce = secrets.token_bytes(4)
 
+    logger.debug(f"Sending AMT discovery to relay {relay_ip}")
     send_amt_discovery(ip_layer, udp_layer, nonce)
 
     try:
@@ -126,6 +128,7 @@ def setup_amt_tunnel(relay, amt_port, multicast, source):
         logger.error(f"Failed to receive data from relay: {e}")
         return None, None, None, None, None
 
+    logger.debug(f"Sending AMT request to relay {relay_ip}")
     send_amt_request(ip_layer, udp_layer, nonce)
 
     try:
@@ -142,6 +145,7 @@ def setup_amt_tunnel(relay, amt_port, multicast, source):
     req = struct.pack("=4sl", socket.inet_aton(multicast), socket.INADDR_ANY)
     s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, req)
 
+    logger.debug(f"Sending membership update to relay {relay_ip}")
     send_membership_update(ip_layer, udp_layer, nonce, response_mac, multicast, source)
     return s, ip_layer, udp_layer, nonce, response_mac
 
