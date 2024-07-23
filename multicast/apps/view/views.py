@@ -187,7 +187,7 @@ def watch(request, stream_id):
         tunnel.save()
 
         # Wait for the tunnel to be ready
-        max_wait_time = 30  # Maximum wait time in seconds
+        max_wait_time = 120  # Maximum wait time in seconds
         start_time = time.time()
         while not task.ready():
             if time.time() - start_time > max_wait_time:
