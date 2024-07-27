@@ -151,145 +151,39 @@ def detail(request, stream_id):
 
 
 def serve_media_file(request, path):
-    file_path = os.path.join("multicast/media/tunnel-files", path)
-    print(f"Requested file path: {file_path}")  # Debugging statement
+    temp_dir = "/tmp"
+    file_path = os.path.join(temp_dir, "tunnel-files", path)
+    logger.info(f"Requested file path: {file_path}")  # Logging statement
+
     try:
         if os.path.exists(file_path):
-            print("File exists.")  # Debugging statement
-            file_handle = open(file_path, "rb")
-            response = HttpResponse(
-                FileWrapper(file_handle), content_type="application/octet-stream"
-            )
-            response["Content-Disposition"] = (
-                f'inline; filename="{os.path.basename(file_path)}"'
-            )
-            response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            response["Pragma"] = "no-cache"
-            response["Expires"] = "Thu, 01 Jan 1970 00:00:00 GMT"
-            return response
+            logger.info("File exists.")  # Logging statement
+            with open(file_path, "rb") as file_handle:
+                content_type = (
+                    "application/vnd.apple.mpegurl"
+                    if path.endswith(".m3u8")
+                    else "video/mp2t"
+                )
+                response = HttpResponse(
+                    FileWrapper(file_handle), content_type=content_type
+                )
+                response["Content-Disposition"] = (
+                    f'inline; filename="{os.path.basename(file_path)}"'
+                )
+                response["Cache-Control"] = (
+                    "no-store, no-cache, must-revalidate, max-age=0"
+                )
+                response["Pragma"] = "no-cache"
+                response["Expires"] = "Thu, 01 Jan 1970 00:00:00 GMT"
+                return response
         else:
-            print("File does not exist at the given path.")  # Debugging statement
-            raise FileNotFoundError
-    except FileNotFoundError:
-        print("FileNotFoundError raised.")
+            logger.warning(
+                "File does not exist at the given path."
+            )  # Logging statement
+            raise Http404("File not found")
+    except Exception as e:
+        logger.error(f"Error serving file: {str(e)}")  # Logging statement
         raise Http404("File not found")
-
-
-# @never_cache
-# def watch(request, stream_id):
-#     stream = get_object_or_404(Stream, id=stream_id)
-#     tunnel, created = Tunnel.objects.get_or_create(stream=stream)
-
-#     if not tunnel.amt_gateway_up:
-#         logger.info(f"Opening AMT tunnel for stream {stream_id}")
-#         task = open_tunnel.delay(tunnel.id)
-#         tunnel.amt_gateway_up = True
-#         tunnel.save()
-
-#         # Wait for the tunnel to be ready
-#         max_wait_time = 120  # Maximum wait time in seconds
-#         start_time = time.time()
-#         while not task.ready():
-#             if time.time() - start_time > max_wait_time:
-#                 logger.error(
-#                     f"Timeout waiting for AMT tunnel to open for stream {stream_id}"
-#                 )
-#                 return JsonResponse(
-#                     {
-#                         "status": "not_ready",
-#                         "message": "Stream not ready. Please try again later.",
-#                     },
-#                     status=503,
-#                 )
-#             time.sleep(0.5)  # Check every 0.5 seconds
-
-#         if task.failed():
-#             logger.error(f"Failed to open AMT tunnel for stream {stream_id}")
-#             return JsonResponse(
-#                 {
-#                     "status": "failed",
-#                     "message": "Failed to prepare stream. Please try again later.",
-#                 },
-#                 status=503,
-#             )
-
-#     if not tunnel.ffmpeg_up:
-#         logger.info(f"Starting FFmpeg for stream {stream_id}")
-#         task = start_ffmpeg.delay(tunnel.id)
-
-#         # Wait for FFmpeg to start
-#         max_wait_time = 30  # Maximum wait time in seconds
-#         start_time = time.time()
-#         while not task.ready():
-#             if time.time() - start_time > max_wait_time:
-#                 logger.error(
-#                     f"Timeout waiting for FFmpeg to start for stream {stream_id}"
-#                 )
-#                 return JsonResponse(
-#                     {
-#                         "status": "not_ready",
-#                         "message": "Stream not ready. Please try again later.",
-#                     },
-#                     status=503,
-#                 )
-#             time.sleep(0.5)  # Check every 0.5 seconds
-
-#         if task.failed():
-#             logger.error(f"Failed to start FFmpeg for stream {stream_id}")
-#             return JsonResponse(
-#                 {
-#                     "status": "failed",
-#                     "message": "Failed to prepare stream. Please try again later.",
-#                 },
-#                 status=503,
-#             )
-
-#     # Check if the stream is actually ready
-#     output_file = os.path.join(MEDIA_ROOT, "tunnel-files", tunnel.get_filename())
-#     max_wait_time = 60  # Maximum wait time for stream to be ready (in seconds)
-#     start_time = time.time()
-
-#     while True:
-#         if time.time() - start_time > max_wait_time:
-#             logger.error(f"Timeout waiting for stream {stream_id} to be ready")
-#             return JsonResponse(
-#                 {
-#                     "status": "not_ready",
-#                     "message": "Stream not ready. Please try again later.",
-#                 },
-#                 status=503,
-#             )
-
-#         # Check if the M3U8 file exists
-#         if not os.path.exists(output_file):
-#             time.sleep(1)
-#             continue
-
-#         # Check if at least one TS segment exists
-#         ts_files = glob.glob(f"{output_file}_*.ts")
-#         if not ts_files:
-#             time.sleep(1)
-#             continue
-
-#         # If we've reached this point, the stream is ready
-#         break
-
-#     Tunnel.objects.filter(id=tunnel.id).update(
-#         active_viewer_count=F("active_viewer_count") + 1
-#     )
-
-#     context = {
-#         "watch_file": f"/media/tunnel-files/{tunnel.get_filename()}",
-#         "stream_id": stream_id,
-#     }
-
-#     response = render(request, "view/watch.html", context=context)
-
-#     response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-#     response["Pragma"] = "no-cache"
-#     response["Expires"] = "Thu, 01 Jan 1970 00:00:00 GMT"
-
-#     return response
 
 
 @never_cache
@@ -329,7 +223,8 @@ def check_stream_status(request, stream_id):
     stream = get_object_or_404(Stream, id=stream_id)
     tunnel = get_object_or_404(Tunnel, stream=stream)
 
-    output_file = os.path.join(MEDIA_ROOT, "tunnel-files", tunnel.get_filename())
+    temp_dir = "/tmp"
+    output_file = os.path.join(temp_dir, "tunnel-files", tunnel.get_filename())
 
     if os.path.exists(output_file) and glob.glob(f"{output_file}_*.ts"):
         return JsonResponse(

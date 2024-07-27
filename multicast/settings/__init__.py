@@ -121,13 +121,22 @@ STATIC_ROOT = BASE_DIR / "serve"
 # WhiteNoise settings
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
+# MEDIA_URL = "/media/"
+# MEDIA_ROOT = BASE_DIR / "media"
+
+# Temporary storage configuration
+TEMP_ROOT = "/tmp"
+MEDIA_ROOT = os.path.join(TEMP_ROOT, "media")
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+
+# Ensure the media directory exists
+os.makedirs(MEDIA_ROOT, exist_ok=True)
 
 DEBUG = True
 
 # Defaults
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
 
 # Celery settings
 # Celery settings

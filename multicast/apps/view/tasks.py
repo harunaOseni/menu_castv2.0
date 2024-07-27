@@ -148,7 +148,10 @@ def start_ffmpeg(tunnel_id):
     tunnel = get_object_or_404(Tunnel, id=tunnel_id)
     udp_port = tunnel.get_udp_port_number()
 
-    log_dir = os.path.join(MEDIA_ROOT, "tunnel-files", "logs")
+    # Use /tmp directory for Heroku compatibility
+    temp_dir = "/tmp"
+    output_dir = os.path.join(temp_dir, "tunnel-files")
+    log_dir = os.path.join(output_dir, "logs")
     os.makedirs(log_dir, exist_ok=True)
 
     ffprobe_log_file = os.path.join(log_dir, f"ffprobe_{tunnel_id}.log")
@@ -182,7 +185,7 @@ def start_ffmpeg(tunnel_id):
         return f"FFprobe failed for tunnel {tunnel_id}: {str(e)}"
 
     # Improved FFmpeg command
-    output_file = os.path.join(MEDIA_ROOT, "tunnel-files", tunnel.get_filename())
+    output_file = os.path.join(output_dir, tunnel.get_filename())
     ffmpeg_command = [
         "ffmpeg",
         "-i",
@@ -210,7 +213,7 @@ def start_ffmpeg(tunnel_id):
         "-hls_time",
         "2",
         "-hls_list_size",
-        "4",  # Keep only 4 segments in the playlist
+        "4",
         "-hls_flags",
         "delete_segments+append_list+discont_start",
         "-hls_segment_type",
@@ -250,6 +253,8 @@ def start_ffmpeg(tunnel_id):
         tunnel.ffmpeg_up = True
         tunnel.save()
 
+        logger.info(f"FFmpeg started for tunnel {tunnel_id} with PID {proc.pid}")
+
         # Start a background task to clean up old TS files periodically
         cleanup_interval = 10  # seconds
         while proc.poll() is None:  # While FFmpeg is still running
@@ -259,6 +264,8 @@ def start_ffmpeg(tunnel_id):
         return f"FFmpeg started for tunnel {tunnel_id} with PID {proc.pid}"
     except Exception as e:
         logger.error(f"Failed to start FFmpeg for tunnel {tunnel_id}: {str(e)}")
+        tunnel.ffmpeg_up = False
+        tunnel.save()
         return f"Failed to start FFmpeg for tunnel {tunnel_id}: {str(e)}"
     finally:
         # Ensure one last cleanup is performed when the task ends
