@@ -4,12 +4,27 @@
 
 {% block head %}
 <link href="https://vjs.zencdn.net/7.20.3/video-js.min.css" rel="stylesheet" />
+<style>
+    .loading {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 264px;
+        background-color: #000;
+        color: #fff;
+        font-size: 18px;
+    }
+</style>
 {% endblock %}
 
 {% block main %}
 <div class="center-div">
-    <video-js id="video-player" class="vjs-default-skin" controls preload="auto" width="640" height="264">
-        <source src="{{ watch_file }}" type="application/x-mpegURL">
+    <div id="loading-indicator" class="loading">
+        Loading stream... Please wait.
+    </div>
+    <video-js id="video-player" class="vjs-default-skin" controls preload="auto" width="640" height="264"
+        style="display: none;">
+        <source src="" type="application/x-mpegURL">
     </video-js>
 
     <script src="https://vjs.zencdn.net/7.20.3/video.min.js"></script>
@@ -22,9 +37,9 @@
                     enableLowInitialPlaylist: true,
                     allowSeeksWithinUnsafeLiveWindow: true,
                     handlePartialData: true,
-                    timeout: 30000,  // Increase timeout to 30 seconds
-                    blacklistDuration: 60,  // Blacklist duration for failed segments
-                    bandwidth: 5000000,  // Initial bandwidth estimate (5 Mbps)
+                    timeout: 30000,
+                    blacklistDuration: 60,
+                    bandwidth: 5000000,
                     smoothQualityChange: true,
                     maxPlaylistRetries: 10,
                 }
@@ -33,12 +48,12 @@
             liveTracker: {
                 trackingThreshold: 0
             },
-            errorDisplay: false,  // Disable default error display
+            errorDisplay: false,
         });
 
         var retryCount = 0;
         var maxRetries = 10;
-        var exponentialBackoff = 1000;  // Start with 1 second
+        var exponentialBackoff = 1000;
 
         function reloadSource() {
             var currentTime = player.currentTime();
@@ -57,7 +72,7 @@
         function handlePlayError(error) {
             if (retryCount < maxRetries) {
                 retryCount++;
-                var delay = Math.min(exponentialBackoff * Math.pow(2, retryCount - 1), 60000);  // Max 60 seconds
+                var delay = Math.min(exponentialBackoff * Math.pow(2, retryCount - 1), 60000);
                 console.log(`Attempting to recover from error. Retry ${retryCount} of ${maxRetries} in ${delay}ms`);
                 setTimeout(reloadSource, delay);
             } else {
@@ -102,8 +117,8 @@
 
             player.on('canplaythrough', function () {
                 console.log('Can play through without stopping.');
-                retryCount = 0;  // Reset retry count on successful playthrough
-                exponentialBackoff = 1000;  // Reset backoff
+                retryCount = 0;
+                exponentialBackoff = 1000;
             });
 
             player.on('playing', function () {
@@ -114,7 +129,6 @@
             });
         });
 
-        // Monitor for stalls
         var lastPlayheadPosition = 0;
         var stallCount = 0;
         var playbackMonitor = setInterval(function () {
@@ -123,10 +137,10 @@
             }
             if (player.currentTime() === lastPlayheadPosition) {
                 stallCount++;
-                if (stallCount > 10) {  // If stalled for more than 10 seconds
+                if (stallCount > 10) {
                     console.log("Playback appears to be stalled. Attempting to recover.");
-                    player.currentTime(player.currentTime() + 0.1);  // Try to nudge playback
-                    if (stallCount > 20) {  // If still stalled after 20 seconds, reload
+                    player.currentTime(player.currentTime() + 0.1);
+                    if (stallCount > 20) {
                         reloadSource();
                         stallCount = 0;
                     }
@@ -137,12 +151,10 @@
             lastPlayheadPosition = player.currentTime();
         }, 1000);
 
-        // Adaptive quality selection
         player.on('levelswitch', function (event, data) {
             console.log('Quality level switched to ' + data.level.height + 'p');
         });
 
-        // Network speed monitoring
         var speedSamples = [];
         player.on('progress', function () {
             var loadTime = player.buffered().end(0) - player.currentTime();
@@ -153,13 +165,11 @@
             console.log('Average network speed: ' + avgSpeed.toFixed(2) + ' Mbps');
         });
 
-        // Periodic health check
         setInterval(function () {
             if (player.error()) {
                 console.log('Player is in an error state. Attempting to recover.');
                 handlePlayError(player.error());
             } else if (!player.paused() && !player.ended()) {
-                // Check if we're far behind live edge for live streams
                 if (player.liveTracker && player.liveTracker.isLive()) {
                     var behindLive = player.liveTracker.liveCurrentTime() - player.currentTime();
                     if (behindLive > 30) {
@@ -170,7 +180,6 @@
             }
         }, 10000);
 
-        // Handle visibility change
         document.addEventListener('visibilitychange', function () {
             if (document.hidden) {
                 player.pause();
@@ -182,7 +191,6 @@
             }
         });
 
-        // Handle network status changes
         window.addEventListener('online', function () {
             console.log('Network is back online. Attempting to resume playback.');
             reloadSource();
@@ -193,6 +201,34 @@
             player.pause();
             displayCustomError("Network connection lost. Waiting for connection to resume.");
         });
+
+        function checkStreamStatus() {
+            fetch('{{ status_check_url }}')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'ready') {
+                        document.getElementById('loading-indicator').style.display = 'none';
+                        document.getElementById('video-player').style.display = 'block';
+                        player.src({
+                            type: "application/x-mpegURL",
+                            src: data.watch_file
+                        });
+                        player.play().catch(function (error) {
+                            console.log("Auto-play failed:", error);
+                            handlePlayError(error);
+                        });
+                    } else {
+                        setTimeout(checkStreamStatus, 5000); // Check again in 5 seconds
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking stream status:', error);
+                    setTimeout(checkStreamStatus, 5000); // Retry in 5 seconds
+                });
+        }
+
+        // Start checking the stream status
+        checkStreamStatus();
     </script>
 </div>
 {% endblock %}
