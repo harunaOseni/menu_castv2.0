@@ -126,7 +126,7 @@ def liked_index(request):
             "TRENDING_STREAM_MAX_VISIBLE_SIZE": TRENDING_STREAM_MAX_VISIBLE_SIZE,
         }
         return render(request, "view/liked_index.html", context=context)
-    raise PermissionDenied
+    raise PermissionDenied 
 
 
 # Detail page for a specific stream
