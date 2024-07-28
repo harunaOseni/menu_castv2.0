@@ -190,16 +190,27 @@ def serve_media_file(request, path):
 def watch(request, stream_id):
     stream = get_object_or_404(Stream, id=stream_id)
     tunnel, created = Tunnel.objects.get_or_create(stream=stream)
+    print(f"Watch function called for stream {stream_id}")
 
     if not tunnel.amt_gateway_up:
-        logger.info(f"Opening AMT tunnel for stream {stream_id}")
-        open_tunnel.delay(tunnel.id)
-        tunnel.amt_gateway_up = True
-        tunnel.save()
+        print(f"AMT gateway not up for stream {stream_id}. Attempting to open tunnel.")
+        try:
+            open_tunnel.delay(tunnel.id)
+            print(f"open_tunnel task queued for stream {stream_id}")
+        except Exception as e:
+            print(f"Failed to queue open_tunnel task for stream {stream_id}: {str(e)}")
+    else:
+        print(f"AMT gateway already up for stream {stream_id}")
 
     if not tunnel.ffmpeg_up:
-        logger.info(f"Starting FFmpeg for stream {stream_id}")
-        start_ffmpeg.delay(tunnel.id)
+        print(f"FFmpeg not up for stream {stream_id}. Attempting to start FFmpeg.")
+        try:
+            start_ffmpeg.delay(tunnel.id)
+            print(f"start_ffmpeg task queued for stream {stream_id}")
+        except Exception as e:
+            print(f"Failed to queue start_ffmpeg task for stream {stream_id}: {str(e)}")
+    else:
+        print(f"FFmpeg already up for stream {stream_id}")
 
     Tunnel.objects.filter(id=tunnel.id).update(
         active_viewer_count=F("active_viewer_count") + 1

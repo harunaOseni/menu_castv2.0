@@ -148,7 +148,6 @@ def start_ffmpeg(tunnel_id):
     tunnel = get_object_or_404(Tunnel, id=tunnel_id)
     udp_port = tunnel.get_udp_port_number()
 
-    # Use /tmp directory for Heroku compatibility
     temp_dir = "/tmp"
     output_dir = os.path.join(temp_dir, "tunnel-files")
     log_dir = os.path.join(output_dir, "logs")
@@ -157,7 +156,6 @@ def start_ffmpeg(tunnel_id):
     ffprobe_log_file = os.path.join(log_dir, f"ffprobe_{tunnel_id}.log")
     ffmpeg_log_file = os.path.join(log_dir, f"ffmpeg_{tunnel_id}.log")
 
-    # Run ffprobe (unchanged)
     ffprobe_command = [
         "ffprobe",
         f"udp://127.0.0.1:{udp_port}",
@@ -179,12 +177,13 @@ def start_ffmpeg(tunnel_id):
             )
     except subprocess.TimeoutExpired:
         logger.error(f"FFprobe timed out for tunnel {tunnel_id}")
+        Tunnel.objects.filter(id=tunnel_id).update(ffmpeg_up=False, ffmpeg_pid=None)
         return f"FFprobe timed out for tunnel {tunnel_id}"
     except subprocess.CalledProcessError as e:
         logger.error(f"FFprobe failed for tunnel {tunnel_id}: {str(e)}")
+        Tunnel.objects.filter(id=tunnel_id).update(ffmpeg_up=False, ffmpeg_pid=None)
         return f"FFprobe failed for tunnel {tunnel_id}: {str(e)}"
 
-    # Improved FFmpeg command
     output_file = os.path.join(output_dir, tunnel.get_filename())
     ffmpeg_command = [
         "ffmpeg",
@@ -244,29 +243,22 @@ def start_ffmpeg(tunnel_id):
                 ffmpeg_command, stdout=log, stderr=subprocess.STDOUT
             )
 
-        # Wait for a short time to check if FFmpeg starts successfully
         time.sleep(5)
         if proc.poll() is not None:
             raise subprocess.CalledProcessError(proc.returncode, ffmpeg_command)
 
-        tunnel.ffmpeg_pid = proc.pid
-        tunnel.ffmpeg_up = True
-        tunnel.save()
-
+        Tunnel.objects.filter(id=tunnel_id).update(ffmpeg_up=True, ffmpeg_pid=proc.pid)
         logger.info(f"FFmpeg started for tunnel {tunnel_id} with PID {proc.pid}")
 
-        # Start a background task to clean up old TS files periodically
         cleanup_interval = 10  # seconds
-        while proc.poll() is None:  # While FFmpeg is still running
+        while proc.poll() is None:
             cleanup_ts_files()
             time.sleep(cleanup_interval)
 
-        return f"FFmpeg started for tunnel {tunnel_id} with PID {proc.pid}"
+        return f"FFmpeg started and running for tunnel {tunnel_id} with PID {proc.pid}"
     except Exception as e:
         logger.error(f"Failed to start FFmpeg for tunnel {tunnel_id}: {str(e)}")
-        tunnel.ffmpeg_up = False
-        tunnel.save()
+        Tunnel.objects.filter(id=tunnel_id).update(ffmpeg_up=False, ffmpeg_pid=None)
         return f"Failed to start FFmpeg for tunnel {tunnel_id}: {str(e)}"
     finally:
-        # Ensure one last cleanup is performed when the task ends
         cleanup_ts_files()
