@@ -6,6 +6,7 @@ from celery import Celery
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "multicast.settings")
 
 app = Celery("multicast")
+app.conf.broker_pool_limit = 10
 
 # Using a string here means the worker doesn't have to serialize
 # the configuration object to child processes.
