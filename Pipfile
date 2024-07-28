@@ -20,6 +20,7 @@ scapy = "~=2.4.5"
 whitenoise = "~=6.7.0"
 importlib-metadata = "~=7.1.0"
 python-vlc = "*"
+pillow = "*"
 
 [pipenv]
 allow_prereleases = true
