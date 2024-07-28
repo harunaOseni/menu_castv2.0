@@ -226,15 +226,29 @@ def check_stream_status(request, stream_id):
     temp_dir = "/tmp"
     output_file = os.path.join(temp_dir, "tunnel-files", tunnel.get_filename())
 
-    if os.path.exists(output_file) and glob.glob(f"{output_file}_*.ts"):
-        return JsonResponse(
-            {
-                "status": "ready",
-                "watch_file": f"/media/tunnel-files/{tunnel.get_filename()}",
-            }
-        )
+    logger.info(f"Checking stream status for stream_id: {stream_id}")
+    logger.info(f"Output file path: {output_file}")
+
+    if os.path.exists(output_file):
+        logger.info(f"M3U8 file exists: {output_file}")
+        ts_files = glob.glob(f"{output_file}_*.ts")
+        logger.info(f"Number of TS files: {len(ts_files)}")
+
+        if ts_files:
+            logger.info("Stream is ready")
+            return JsonResponse(
+                {
+                    "status": "ready",
+                    "watch_file": f"/media/tunnel-files/{tunnel.get_filename()}",
+                }
+            )
+        else:
+            logger.info("M3U8 file exists but no TS files found")
     else:
-        return JsonResponse({"status": "not_ready"})
+        logger.info(f"M3U8 file does not exist: {output_file}")
+
+    logger.info("Stream is not ready")
+    return JsonResponse({"status": "not_ready"})
 
 
 # Download a .m3u file for the user to open in VLC
