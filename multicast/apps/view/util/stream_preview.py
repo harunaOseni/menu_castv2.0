@@ -4,6 +4,95 @@ from pathlib import Path
 from PIL import Image
 
 
+# def snapshot_multicast_stream(str_url, str_amt_relay, str_snapshot_path):
+#     """
+#     Open a multicast stream with a local VLC installation, create one or more snapshots
+#     (one snapshot out of 240 frames), save them in the specified path and close the stream after 15 seconds.
+
+#     :param str_url: URL address of the stream
+#     :param str_amt_relay: AMT Relay of the stream
+#     :param str_snapshot_path: Path to the directory, in which the files will be saved
+#     :return:
+#     """
+
+#     if str_url is None:
+#         ValueError("Illegal argument: str_url is null!")
+#     if str_amt_relay is None:
+#         ValueError("Illegal argument: str_amt_relay is null!")
+#     if str_snapshot_path is None:
+#         ValueError("Illegal argument: str_snapshot_path is null!")
+
+#     snapshot_path = Path(str_snapshot_path)
+#     # Check if the directory exists
+#     if not os.path.isdir(snapshot_path):
+#         # If the directory doesn't exist, create it
+#         Path(snapshot_path).mkdir(parents=True, exist_ok=True)
+
+#     """
+#     Start the VLC process with the specified stream and AMT Relay.
+#     VLC will take the snapshots and save them to the specified location.
+#     Helpful resources:
+#         Taking still images from stream, https://forum.videolan.org/viewtopic.php?t=130776
+#         VLC command-line help, https://wiki.videolan.org/VLC_command-line_help
+#         Command-line interface, https://wiki.videolan.org/Command-line_interface/
+#     """
+#     vlc_process = subprocess.Popen(
+#         [
+#             "/usr/bin/cvlc",
+#             # Stream URL
+#             str_url,
+#             # AMT Relay
+#             "--amt-relay=" + str_amt_relay,
+#             # Set the timeout for the native multicast to 2 seconds
+#             "--amt-native-timeout=2",
+#             # Run in command line mode
+#             "--intf=rc",
+#             # Don't play audio
+#             "--no-audio",
+#             # Send your video to picture files
+#             "--video-filter=scene",
+#             # Format of the output images (png, jpeg, ...).
+#             "--scene-format=jpg",
+#             # Directory path where images files should be saved.
+#             "--scene-path=" + str_snapshot_path,
+#             # Ratio of images to record. 3 means that one image out of three is recorded.
+#             "--scene-ratio=240",
+#             # Framecount to use on frametype lookahead.
+#             "--sout-x264-lookahead=10",
+#             # Default tune setting used
+#             "--sout-x264-tune=stillimage",
+#             # This is the video output method used by VLC.
+#             "--vout=dummy",
+#             # The stream will run this duration( in seconds).
+#             "--run-time=15",
+#             # Special item to quit VLC
+#             "vlc://quit",
+#             # Turn off all messages on the console.
+#             # "s--quiet"
+#         ],
+#         stdout=subprocess.PIPE,
+#         stderr=subprocess.PIPE,
+#         universal_newlines=True,
+#     )
+
+#     try:
+#         # Read the data from the stdout and stderr.
+#         # Wait for the process to terminate with a timeout of 30 seconds.
+#         outs, errs = vlc_process.communicate(timeout=30)
+#     except subprocess.TimeoutExpired:
+#         print("TimoutExpired: Killing vlc...")
+#         vlc_process.kill()
+#         outs, errs = vlc_process.communicate()
+
+#     print("outs: {0}".format(outs))
+#     print("errs: {0}".format(errs))
+
+#     if vlc_process.returncode == 0:
+#         print("vlc_process : success")
+#     else:
+#         print("vlc_process : failed")
+
+
 def snapshot_multicast_stream(str_url, str_amt_relay, str_snapshot_path):
     """
     Open a multicast stream with FFmpeg, create one or more snapshots,
