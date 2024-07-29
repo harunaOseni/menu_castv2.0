@@ -20,69 +20,28 @@ logger = logging.getLogger(__name__)
 @shared_task
 def create_preview_for_stream(stream_id):
     """
-    Shared task that creates a thumbnail and a preview for a stream by a given stream ID.
-
-    The task calls a script that connects to the stream and creates a couple of snapshots
-    in a temporary directory. If the script was able to create any snapshots, one of them
-    is chosen (currently the first one) and from it a thumbnail and a preview are created
-    and then saved to the thumbnail and preview fields of the stream.
-
-    :param stream_id:
-    :return:
+    Creates a thumbnail and a preview for a stream by a given stream ID.
     """
-    if stream_id is None:
-        ValueError("Illegal argument: stream_id is null!")
-    if not isinstance(stream_id, int):
-        ValueError("Illegal argument: stream_id is not an integer!")
-
-    # Get the stream object
     stream = Stream.objects.get(id=stream_id)
-    # Create a temp directory
-    temp_dir = tempfile.TemporaryDirectory()
-    # Snapshot the stream and save the images in the temp directory
-    amt_relay = (
-        stream.amt_relay if stream.amt_relay is not None else "amt-relay.m2icast.net"
-    )
-    snapshot_multicast_stream(stream.get_url(), amt_relay, temp_dir.name)
-    # List the snapshots
-    snapshots = os.listdir(temp_dir.name)
-    # Check if there are any snapshots
-    if snapshots:
-        # Get one of the snapshots
-        first_snapshot = snapshots[0]
-        # Build the path to the snapshot
-        str_snapshot_path = os.path.join(temp_dir.name, first_snapshot)
 
-        # Create a temp file for the thumbnail
-        with tempfile.NamedTemporaryFile() as thumbnail:
-            # Resize the original snapshot and save it to the temp file
-            resize_image(str_snapshot_path, thumbnail.name, i_width=440)
-            # Get the stream again, so that we don't overwrite some data,
-            # which might have changed while taking the snapshots
-            stream = Stream.objects.get(id=stream_id)
-            # Delete the old file without saving, because the field will be saved on the next line
-            stream.thumbnail.delete(save=False)
-            # Update the thumbnail in the stream object
-            stream.thumbnail.save(
-                "stream_" + str(stream_id) + "_thb.jpg", File(thumbnail), save=True
-            )
+    with tempfile.TemporaryDirectory() as temp_dir:
+        amt_relay = stream.amt_relay or "amt-relay.m2icast.net"
+        snapshot_multicast_stream(stream.get_url(), amt_relay, temp_dir)
 
-        # Create a temp file for the preview
-        with tempfile.NamedTemporaryFile() as preview:
-            # Resize the original snapshot and save it to the temp file
-            resize_image(str_snapshot_path, preview.name, i_width=880)
-            # Get the stream again, so that we don't overwrite some data,
-            # which might have changed while taking the snapshots
-            stream = Stream.objects.get(id=stream_id)
-            # Delete the old file without saving, because the field will be saved on the next line
-            stream.preview.delete(save=False)
-            # Update the preview in the stream object
-            stream.preview.save(
-                "stream_" + str(stream_id) + "_prw.jpg", File(preview), save=True
-            )
+        snapshots = os.listdir(temp_dir)
+        if snapshots:
+            snapshot_path = os.path.join(temp_dir, snapshots[0])
 
-    # Remove the temp directory
-    temp_dir.cleanup()
+            for field, size in [("thumbnail", 440), ("preview", 880)]:
+                with tempfile.NamedTemporaryFile() as temp_file:
+                    resize_image(snapshot_path, temp_file.name, i_width=size)
+                    getattr(stream, field).save(
+                        f"stream_{stream_id}_{field[:3]}.jpg",
+                        File(temp_file),
+                        save=True,
+                    )
+
+    return f"Preview created for stream {stream_id}"
 
 
 @shared_task
@@ -90,204 +49,95 @@ def open_tunnel(tunnel_id):
     tunnel = get_object_or_404(Tunnel, id=tunnel_id)
 
     relay = tunnel.stream.amt_relay or "amt-relay.m2icast.net"
-    source = tunnel.stream.source
-    multicast = tunnel.stream.group
-    amt_port = str(tunnel.get_amt_port_number())
-    udp_port = str(tunnel.get_udp_port_number())
-
-    # Create logs directory if it doesn't exist
-    logs_dir = os.path.join(BASE_DIR, "logs", "tunnels")
-    os.makedirs(logs_dir, exist_ok=True)
-
-    # Create a log file name based on the tunnel ID and timestamp
-    log_file_name = f"tunnel_{tunnel_id}_{int(time.time())}.log"
-    log_file_path = os.path.join(logs_dir, log_file_name)
-
-    # Path to the tunnel.py script
-    script_path = os.path.join(BASE_DIR, "apps", "view", "amt", "tunnel.py")
-
-    # Construct the command as a list of arguments
     command = [
-        "pipenv",
-        "run",
-        "python3",
-        script_path,
+        "pipenv", "run", "python3",
+        os.path.join(BASE_DIR, "apps", "view", "amt", "tunnel.py"),
         relay,
-        source,
-        multicast,
-        amt_port,
-        udp_port,
+        tunnel.stream.source,
+        tunnel.stream.group,
+        str(tunnel.get_amt_port_number()),
+        str(tunnel.get_udp_port_number())
     ]
 
-    # Open the log file in append mode
-    with open(log_file_path, "a") as log_file:
-        try:
-            # Run the command and redirect stdout and stderr to the log file
-            proc = subprocess.Popen(
-                command,
-                stdout=log_file,
-                stderr=subprocess.STDOUT,  # Redirect stderr to stdout
-            )
+    log_file_path = os.path.join(BASE_DIR, "logs", "tunnels", f"tunnel_{tunnel_id}_{int(time.time())}.log")
+    os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
 
-            tunnel.amt_gateway_pid = proc.pid
-            tunnel.log_file_path = log_file_path
-            tunnel.amt_gateway_up = True
-            tunnel.save()
+    try:
+        with open(log_file_path, "a") as log_file:
+            proc = subprocess.Popen(command, stdout=log_file, stderr=subprocess.STDOUT)
 
-            return f"Tunnel opened for {tunnel_id} with PID {proc.pid}"
-        except subprocess.SubprocessError as e:
-            error_msg = f"Failed to open tunnel for {tunnel_id}: {str(e)}"
-            log_file.write(error_msg + "\n")
-            tunnel.amt_gateway_up = False
-            tunnel.save()
-            raise Exception(error_msg)
+        tunnel.amt_gateway_pid = proc.pid
+        tunnel.log_file_path = log_file_path
+        tunnel.amt_gateway_up = True
+        tunnel.save()
+
+        return f"Tunnel opened for {tunnel_id} with PID {proc.pid}"
+    except subprocess.SubprocessError as e:
+        with open(log_file_path, "a") as log_file:
+            log_file.write(f"Failed to open tunnel for {tunnel_id}: {str(e)}\n")
+        tunnel.amt_gateway_up = False
+        tunnel.save()
+        raise
 
 
 @shared_task
 def start_ffmpeg(tunnel_id):
-    print(f"Starting FFmpeg task for tunnel {tunnel_id}")
     tunnel = get_object_or_404(Tunnel, id=tunnel_id)
     udp_port = tunnel.get_udp_port_number()
 
-    temp_dir = "/tmp"
-    output_dir = os.path.join(temp_dir, "tunnel-files")
-    log_dir = os.path.join(output_dir, "logs")
-    os.makedirs(log_dir, exist_ok=True)
+    # Use the correct path for output files
+    output_dir = os.path.join(MEDIA_ROOT, "multicast", "media", "tunnel-files")
+    os.makedirs(output_dir, exist_ok=True)
 
-    ffprobe_log_file = os.path.join(log_dir, f"ffprobe_{tunnel_id}.log")
-    ffmpeg_log_file = os.path.join(log_dir, f"ffmpeg_{tunnel_id}.log")
+    output_file = os.path.join(output_dir, f"index{tunnel_id}-.m3u8")
 
-    # FFprobe command (unchanged)
-    ffprobe_command = [
-        "ffprobe",
-        f"udp://127.0.0.1:{udp_port}",
-        "-v",
-        "error",
-        "-show_entries",
-        "stream=codec_type,codec_name,width,height,bit_rate,sample_rate",
-        "-of",
-        "json",
-    ]
-
-    try:
-        with open(ffprobe_log_file, "w") as log:
-            subprocess.run(
-                ffprobe_command,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                check=True,
-                timeout=120,
-            )
-    except subprocess.TimeoutExpired:
-        print(f"FFprobe timed out for tunnel {tunnel_id}")
-        Tunnel.objects.filter(id=tunnel_id).update(ffmpeg_up=False, ffmpeg_pid=None)
-        return f"FFprobe timed out for tunnel {tunnel_id}"
-    except subprocess.CalledProcessError as e:
-        print(f"FFprobe failed for tunnel {tunnel_id}: {str(e)}")
-        Tunnel.objects.filter(id=tunnel_id).update(ffmpeg_up=False, ffmpeg_pid=None)
-        return f"FFprobe failed for tunnel {tunnel_id}: {str(e)}"
-
-    output_file = os.path.join(output_dir, tunnel.get_filename())
-
-    # FFmpeg command (unchanged)
     ffmpeg_command = [
         "ffmpeg",
-        "-i",
-        f"udp://127.0.0.1:{udp_port}",
-        "-reconnect",
-        "1",
-        "-reconnect_at_eof",
-        "1",
-        "-reconnect_streamed",
-        "1",
-        "-reconnect_delay_max",
-        "2",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "ultrafast",
-        "-tune",
-        "zerolatency",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-f",
-        "hls",
-        "-hls_time",
-        "2",
-        "-hls_list_size",
-        "4",
-        "-hls_flags",
-        "delete_segments+append_list+discont_start",
-        "-hls_segment_type",
-        "mpegts",
-        "-hls_segment_filename",
-        f"{output_file}_%03d.ts",
-        "-hls_playlist_type",
-        "event",
-        "-metadata",
-        f"service_name=Stream {tunnel_id}",
-        "-metadata",
-        f"service_provider=Your Service Name",
+        "-i", f"udp://127.0.0.1:{udp_port}",
+        "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+        "-c:a", "aac", "-b:a", "128k",
+        "-f", "hls",
+        "-hls_time", "2",
+        "-hls_list_size", "4",
+        "-hls_flags", "delete_segments+append_list+discont_start",
+        "-hls_segment_type", "mpegts",
+        "-hls_segment_filename", f"{output_file}_%03d.ts",
         output_file,
     ]
 
-    def cleanup_ts_files():
-        ts_files = sorted(glob.glob(f"{output_file}_*.ts"))
-        for old_file in ts_files[:-4]:  # Keep only the 4 most recent files
-            try:
-                os.remove(old_file)
-                print(f"Deleted old TS file: {old_file}")
-            except OSError as e:
-                print(f"Error deleting file {old_file}: {e}")
-
-    def run_ffmpeg():
-        print(f"Running FFmpeg for tunnel {tunnel_id}")
-        try:
-            print(f"Starting FFmpeg with command: {' '.join(ffmpeg_command)}")
-            with open(ffmpeg_log_file, "w") as log:
-                proc = subprocess.Popen(
-                    ffmpeg_command,
-                    stdout=log,
-                    stderr=subprocess.STDOUT,
-                    preexec_fn=os.setsid,
-                )
-
-            # Wait for FFmpeg to start (with timeout)
-            start_time = time.time()
-            while time.time() - start_time < 30:  # 30 seconds timeout
-                if proc.poll() is not None:
-                    raise subprocess.CalledProcessError(proc.returncode, ffmpeg_command)
-                if os.path.exists(output_file):
-                    print(f"M3U8 file created: {output_file}")
-                    break
-                time.sleep(1)
-            else:
-                raise TimeoutError("FFmpeg failed to start within 30 seconds")
-
-            Tunnel.objects.filter(id=tunnel_id).update(
-                ffmpeg_up=True, ffmpeg_pid=proc.pid
-            )
-            print(f"FFmpeg started for tunnel {tunnel_id} with PID {proc.pid}")
-
-            while proc.poll() is None:
-                cleanup_ts_files()
-                time.sleep(10)  # Run cleanup every 10 seconds
-
-            print(f"FFmpeg process for tunnel {tunnel_id} has terminated")
-            Tunnel.objects.filter(id=tunnel_id).update(ffmpeg_up=False, ffmpeg_pid=None)
-
-        except Exception as e:
-            print(f"Error in FFmpeg process for tunnel {tunnel_id}: {str(e)}")
-            Tunnel.objects.filter(id=tunnel_id).update(ffmpeg_up=False, ffmpeg_pid=None)
-        finally:
-            cleanup_ts_files()
-
     try:
-        run_ffmpeg()
-        return f"FFmpeg task completed for tunnel {tunnel_id}"
+        proc = subprocess.Popen(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        start_time = time.time()
+        while time.time() - start_time < 30:
+            if proc.poll() is not None:
+                stdout, stderr = proc.communicate()
+                raise subprocess.CalledProcessError(proc.returncode, ffmpeg_command, stdout, stderr)
+            if os.path.exists(output_file):
+                break
+            time.sleep(1)
+        else:
+            raise TimeoutError("FFmpeg failed to start within 30 seconds")
+
+        Tunnel.objects.filter(id=tunnel_id).update(ffmpeg_up=True, ffmpeg_pid=proc.pid)
+        return f"FFmpeg started for tunnel {tunnel_id} with PID {proc.pid}"
+
     except Exception as e:
-        print(f"Failed to start or run FFmpeg for tunnel {tunnel_id}: {str(e)}")
         Tunnel.objects.filter(id=tunnel_id).update(ffmpeg_up=False, ffmpeg_pid=None)
-        return f"Failed to start or run FFmpeg for tunnel {tunnel_id}: {str(e)}"
+        return f"Failed to start FFmpeg for tunnel {tunnel_id}: {str(e)}"
+
+    finally:
+        # Cleanup function to delete old TS files
+        def cleanup_ts_files():
+            ts_files = sorted(glob.glob(f"{output_file}_*.ts"))
+            for old_file in ts_files[:-4]:  # Keep only the 4 most recent files
+                try:
+                    os.remove(old_file)
+                    print(f"Deleted old TS file: {old_file}")
+                except OSError as e:
+                    print(f"Error deleting file {old_file}: {e}")
+
+        # Run cleanup every 10 seconds
+        while proc.poll() is None:
+            cleanup_ts_files()
+            time.sleep(10)

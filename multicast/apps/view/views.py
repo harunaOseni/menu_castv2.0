@@ -190,37 +190,16 @@ def serve_media_file(request, path):
 def watch(request, stream_id):
     stream = get_object_or_404(Stream, id=stream_id)
     tunnel, created = Tunnel.objects.get_or_create(stream=stream)
-    print(f"Watch function called for stream {stream_id}")
 
     if not tunnel.amt_gateway_up:
-        print(f"AMT gateway not up for stream {stream_id}. Attempting to open tunnel.")
-        try:
-            open_tunnel.delay(tunnel.id)
-            print(f"open_tunnel task queued for stream {stream_id}")
-        except Exception as e:
-            print(f"Failed to queue open_tunnel task for stream {stream_id}: {str(e)}")
-    else:
-        print(f"AMT gateway already up for stream {stream_id}")
-
+        open_tunnel.delay(tunnel.id)
+        tunnel.amt_gateway_up = True
+        tunnel.save()
+    
     if not tunnel.ffmpeg_up:
-        print(f"FFmpeg not up for stream {stream_id}. Attempting to start FFmpeg.")
+        start_ffmpeg.delay(tunnel.id)
 
-        # Add this logging line
-        logger.info(
-            f"Attempting to queue start_ffmpeg task for tunnel {tunnel.id} and stream {stream_id}"
-        )
-
-        try:
-            start_ffmpeg.delay(tunnel.id)
-            print(f"start_ffmpeg task queued for stream {stream_id}")
-        except Exception as e:
-            print(f"Failed to queue start_ffmpeg task for stream {stream_id}: {str(e)}")
-    else:
-        print(f"FFmpeg already up for stream {stream_id}")
-
-    Tunnel.objects.filter(id=tunnel.id).update(
-        active_viewer_count=F("active_viewer_count") + 1
-    )
+    Tunnel.objects.filter(id=tunnel.id).update(active_viewer_count=F('active_viewer_count') + 1)
 
     context = {
         "stream_id": stream_id,
@@ -228,9 +207,9 @@ def watch(request, stream_id):
     }
 
     response = render(request, "view/watch.html", context=context)
-    response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response["Pragma"] = "no-cache"
-    response["Expires"] = "Thu, 01 Jan 1970 00:00:00 GMT"
+    response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response['Pragma'] = 'no-cache'
+    response['Expires'] = 'Thu, 01 Jan 1970 00:00:00 GMT'
 
     return response
 
@@ -240,31 +219,14 @@ def check_stream_status(request, stream_id):
     stream = get_object_or_404(Stream, id=stream_id)
     tunnel = get_object_or_404(Tunnel, stream=stream)
 
-    temp_dir = "/tmp"
-    output_file = os.path.join(temp_dir, "tunnel-files", tunnel.get_filename())
+    output_file = os.path.join("/tmp", "tunnel-files", tunnel.get_filename())
 
-    logger.info(f"Checking stream status for stream_id: {stream_id}")
-    logger.info(f"Output file path: {output_file}")
-
-    if os.path.exists(output_file):
-        logger.info(f"M3U8 file exists: {output_file}")
-        ts_files = glob.glob(f"{output_file}_*.ts")
-        logger.info(f"Number of TS files: {len(ts_files)}")
-
-        if ts_files:
-            logger.info("Stream is ready")
-            return JsonResponse(
-                {
-                    "status": "ready",
-                    "watch_file": f"/media/tunnel-files/{tunnel.get_filename()}",
-                }
-            )
-        else:
-            logger.info("M3U8 file exists but no TS files found")
-    else:
-        logger.info(f"M3U8 file does not exist: {output_file}")
-
-    logger.info("Stream is not ready")
+    if os.path.exists(output_file) and glob.glob(f"{output_file}_*.ts"):
+        return JsonResponse({
+            "status": "ready",
+            "watch_file": f"/media/tunnel-files/{tunnel.get_filename()}",
+        })
+    
     return JsonResponse({"status": "not_ready"})
 
 
