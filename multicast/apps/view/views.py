@@ -126,7 +126,7 @@ def liked_index(request):
             "TRENDING_STREAM_MAX_VISIBLE_SIZE": TRENDING_STREAM_MAX_VISIBLE_SIZE,
         }
         return render(request, "view/liked_index.html", context=context)
-    raise PermissionDenied 
+    raise PermissionDenied
 
 
 # Detail page for a specific stream
@@ -204,6 +204,12 @@ def watch(request, stream_id):
 
     if not tunnel.ffmpeg_up:
         print(f"FFmpeg not up for stream {stream_id}. Attempting to start FFmpeg.")
+
+        # Add this logging line
+        logger.info(
+            f"Attempting to queue start_ffmpeg task for tunnel {tunnel.id} and stream {stream_id}"
+        )
+
         try:
             start_ffmpeg.delay(tunnel.id)
             print(f"start_ffmpeg task queued for stream {stream_id}")
