@@ -239,7 +239,7 @@ def check_stream_status(request, stream_id):
         ts_files = glob.glob(f"{output_file}_*.ts")
         print(f"Found {len(ts_files)} TS files")
         if ts_files:
-            watch_file = f"https://treedn.net/media/tunnel-files/{tunnel.get_filename()}"
+            watch_file = f"/media/tunnel-files/{tunnel.get_filename()}"
             print(f"Stream ready. Watch file URL: {watch_file}")
             return JsonResponse({
                 "status": "ready",
