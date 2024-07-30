@@ -41,11 +41,11 @@ def add_manual(request):
                 stream=stream,
                 active=False,
             )
-            report.celery_id = verify_manual_report.delay(stream.id).id
+            verify_manual_report(stream.id)
             report.save()
 
             # Create the preview for the stream
-            create_preview_for_stream.delay(stream.id)
+            # create_preview_for_stream(stream.id)
 
             return redirect(reverse("manage:index"))
     
