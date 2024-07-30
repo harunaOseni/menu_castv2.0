@@ -12,6 +12,9 @@ from wsgiref.util import FileWrapper
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.cache import never_cache
 from django.db.models import F
+from django.db import connection
+
+from redis import Redis
 from .models import Stream, Tunnel
 from .tasks import open_tunnel, start_ffmpeg
 import time
@@ -21,7 +24,7 @@ import glob
 from .forms import DescriptionForm, CustomUserCreationForm
 from .models import Category, Description, Stream, TrendingStream, Tunnel
 
-from ...settings import TRENDING_STREAM_MAX_VISIBLE_SIZE, MEDIA_ROOT
+from ...settings import TRENDING_STREAM_MAX_VISIBLE_SIZE, MEDIA_ROOT, CELERY_BROKER_URL
 from .tasks import open_tunnel, start_ffmpeg
 
 import os
@@ -151,13 +154,12 @@ def detail(request, stream_id):
 
 
 def serve_media_file(request, path):
-    temp_dir = "/tmp"
-    file_path = os.path.join(temp_dir, "tunnel-files", path)
-    logger.info(f"Requested file path: {file_path}")  # Logging statement
+    file_path = os.path.join(MEDIA_ROOT, "multicast", "media", "tunnel-files", path)
+    logger.info(f"Requested file path: {file_path}")
 
     try:
         if os.path.exists(file_path):
-            logger.info("File exists.")  # Logging statement
+            logger.info("File exists.")
             with open(file_path, "rb") as file_handle:
                 content_type = (
                     "application/vnd.apple.mpegurl"
@@ -177,24 +179,35 @@ def serve_media_file(request, path):
                 response["Expires"] = "Thu, 01 Jan 1970 00:00:00 GMT"
                 return response
         else:
-            logger.warning(
-                "File does not exist at the given path."
-            )  # Logging statement
+            logger.warning("File does not exist at the given path.")
             raise Http404("File not found")
     except Exception as e:
-        logger.error(f"Error serving file: {str(e)}")  # Logging statement
+        logger.error(f"Error serving file: {str(e)}")
         raise Http404("File not found")
 
 
 @never_cache
 def watch(request, stream_id):
+    # Clear up resources
+    connection.close()
+    redis = Redis.from_url(CELERY_BROKER_URL)
+    
+    # Attempt to remove idle clients
+    try:
+        all_clients = redis.client_list()
+        for client in all_clients:
+            if client.get('flags', '') == 'N' and int(client.get('idle', 0)) > 300:  # 5 minutes idle
+                redis.client_kill(addr=client['addr'])
+    except Exception as e:
+        print(f"Error cleaning up Redis clients: {e}")
+
     stream = get_object_or_404(Stream, id=stream_id)
     tunnel, created = Tunnel.objects.get_or_create(stream=stream)
 
     if not tunnel.amt_gateway_up:
         open_tunnel.delay(tunnel.id)
-        tunnel.amt_gateway_up = True
-        tunnel.save()
+        # tunnel.amt_gateway_up = True
+        # tunnel.save()
     
     if not tunnel.ffmpeg_up:
         start_ffmpeg.delay(tunnel.id)
@@ -219,12 +232,13 @@ def check_stream_status(request, stream_id):
     stream = get_object_or_404(Stream, id=stream_id)
     tunnel = get_object_or_404(Tunnel, stream=stream)
 
-    output_file = os.path.join("/tmp", "tunnel-files", tunnel.get_filename())
+    # Use the correct path for checking files
+    output_file = os.path.join(MEDIA_ROOT, "multicast", "media", "tunnel-files", tunnel.get_filename())
 
     if os.path.exists(output_file) and glob.glob(f"{output_file}_*.ts"):
         return JsonResponse({
             "status": "ready",
-            "watch_file": f"/media/tunnel-files/{tunnel.get_filename()}",
+            "watch_file": f"/media/multicast/media/tunnel-files/{tunnel.get_filename()}",
         })
     
     return JsonResponse({"status": "not_ready"})
