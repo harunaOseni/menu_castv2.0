@@ -134,9 +134,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
 
 # Celery settings
-# Celery settings
 CELERY_BROKER_URL = "redis://:p3ad4a1263cb47a3fa6a15a40c45eb98677bbca3552fee9391e3763b7606b9441@ec2-44-221-228-247.compute-1.amazonaws.com:17389"
 CELERY_RESULT_BACKEND = "redis://:p3ad4a1263cb47a3fa6a15a40c45eb98677bbca3552fee9391e3763b7606b9441@ec2-44-221-228-247.compute-1.amazonaws.com:17389"
+# CELERY_BROKER_URL = "redis://localhost:6379"
+# CELERY_RESULT_BACKEND = "redis://localhost:6379"
 CELERY_ACCEPT_CONTENT = ["application/json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
