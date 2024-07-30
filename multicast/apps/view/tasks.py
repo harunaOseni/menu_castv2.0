@@ -85,8 +85,7 @@ def start_ffmpeg(tunnel_id):
     tunnel = get_object_or_404(Tunnel, id=tunnel_id)
     udp_port = tunnel.get_udp_port_number()
 
-    # Use the correct path for output files
-    output_dir = os.path.join(MEDIA_ROOT, "multicast", "media", "tunnel-files")
+    output_dir = os.path.join(MEDIA_ROOT, "tunnel-files")
     os.makedirs(output_dir, exist_ok=True)
 
     output_file = os.path.join(output_dir, f"index{tunnel_id}-.m3u8")
@@ -94,16 +93,22 @@ def start_ffmpeg(tunnel_id):
     ffmpeg_command = [
         "ffmpeg",
         "-i", f"udp://127.0.0.1:{udp_port}",
-        "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+        "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
+        "-profile:v", "main", "-level", "3.1",
+        "-b:v", "2000k",  # Adjust bitrate as needed
+        "-maxrate", "2500k",
+        "-bufsize", "4000k",
         "-c:a", "aac", "-b:a", "128k",
         "-f", "hls",
-        "-hls_time", "2",
-        "-hls_list_size", "4",
+        "-hls_time", "4",
+        "-hls_list_size", "20",
         "-hls_flags", "delete_segments+append_list+discont_start",
         "-hls_segment_type", "mpegts",
         "-hls_segment_filename", f"{output_file}_%03d.ts",
         output_file,
     ]
+
+    print(f"Starting FFmpeg for tunnel {tunnel_id} with command: {' '.join(ffmpeg_command)}")
 
     try:
         proc = subprocess.Popen(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -112,32 +117,36 @@ def start_ffmpeg(tunnel_id):
         while time.time() - start_time < 30:
             if proc.poll() is not None:
                 stdout, stderr = proc.communicate()
+                print(f"FFmpeg process ended unexpectedly. Stdout: {stdout.decode()}, Stderr: {stderr.decode()}")
                 raise subprocess.CalledProcessError(proc.returncode, ffmpeg_command, stdout, stderr)
             if os.path.exists(output_file):
+                print(f"M3U8 file created: {output_file}")
                 break
             time.sleep(1)
         else:
             raise TimeoutError("FFmpeg failed to start within 30 seconds")
 
         Tunnel.objects.filter(id=tunnel_id).update(ffmpeg_up=True, ffmpeg_pid=proc.pid)
-        return f"FFmpeg started for tunnel {tunnel_id} with PID {proc.pid}"
-
-    except Exception as e:
-        Tunnel.objects.filter(id=tunnel_id).update(ffmpeg_up=False, ffmpeg_pid=None)
-        return f"Failed to start FFmpeg for tunnel {tunnel_id}: {str(e)}"
-
-    finally:
-        # Cleanup function to delete old TS files
-        def cleanup_ts_files():
+        print(f"FFmpeg started for tunnel {tunnel_id} with PID {proc.pid}")
+        
+        # Monitor FFmpeg process
+        while True:
+            time.sleep(10)
+            if proc.poll() is not None:
+                print(f"FFmpeg process for tunnel {tunnel_id} has stopped. Restarting...")
+                return start_ffmpeg(tunnel_id)  # Restart the FFmpeg process
+            print(f"FFmpeg process for tunnel {tunnel_id} is still running. PID: {proc.pid}")
+            
+            # Cleanup function to delete old TS files
             ts_files = sorted(glob.glob(f"{output_file}_*.ts"))
-            for old_file in ts_files[:-4]:  # Keep only the 4 most recent files
+            for old_file in ts_files[:-20]:  # Keep the 20 most recent files
                 try:
                     os.remove(old_file)
                     print(f"Deleted old TS file: {old_file}")
                 except OSError as e:
                     print(f"Error deleting file {old_file}: {e}")
 
-        # Run cleanup every 10 seconds
-        while proc.poll() is None:
-            cleanup_ts_files()
-            time.sleep(10)
+    except Exception as e:
+        print(f"Failed to start FFmpeg for tunnel {tunnel_id}: {str(e)}")
+        Tunnel.objects.filter(id=tunnel_id).update(ffmpeg_up=False, ffmpeg_pid=None)
+        raise
