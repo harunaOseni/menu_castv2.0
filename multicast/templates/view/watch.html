@@ -22,8 +22,7 @@
     <div id="loading-indicator" class="loading">
         Loading stream... Please wait.
     </div>
-    <video-js id="video-player" class="vjs-default-skin" controls preload="auto" width="640" height="264"
-        style="display: none;">
+    <video-js id="video-player" class="vjs-default-skin" controls preload="auto" width="640" height="360">
         <source src="" type="application/x-mpegURL">
     </video-js>
 
@@ -34,14 +33,11 @@
             html5: {
                 vhs: {
                     overrideNative: true,
-                    enableLowInitialPlaylist: true,
+                    enableLowInitialPlaylist: false,
                     allowSeeksWithinUnsafeLiveWindow: true,
                     handlePartialData: true,
-                    timeout: 30000,
-                    blacklistDuration: 60,
+                    fastQualityChange: true,
                     bandwidth: 5000000,
-                    smoothQualityChange: true,
-                    maxPlaylistRetries: 10,
                 }
             },
             liveui: true,
@@ -49,184 +45,62 @@
                 trackingThreshold: 0
             },
             errorDisplay: false,
+            controls: true,
+            autoplay: false,
+            preload: 'auto',
         });
-
-        var retryCount = 0;
-        var maxRetries = 10;
-        var exponentialBackoff = 1000;
-
-        function reloadSource() {
-            var currentTime = player.currentTime();
-            player.src({
-                type: "application/x-mpegURL",
-                src: "{{ watch_file }}?_=" + new Date().getTime()
+    
+        player.ready(function() {
+            player.tech().on('retryplaylist', function() {
+                console.log('Retrying to load playlist');
             });
-            player.play().then(function () {
-                player.currentTime(currentTime);
-            }).catch(function (error) {
-                console.log("Play failed after reload: " + error);
-                handlePlayError(error);
+    
+            player.on('error', function(e) {
+                console.error('Player error:', player.error());
             });
-        }
-
-        function handlePlayError(error) {
-            if (retryCount < maxRetries) {
-                retryCount++;
-                var delay = Math.min(exponentialBackoff * Math.pow(2, retryCount - 1), 60000);
-                console.log(`Attempting to recover from error. Retry ${retryCount} of ${maxRetries} in ${delay}ms`);
-                setTimeout(reloadSource, delay);
-            } else {
-                console.error('Max retries reached. Please refresh the page.');
-                displayCustomError("Unable to play the video. Please try refreshing the page.");
-            }
-        }
-
-        function displayCustomError(message) {
-            var errorDisplay = player.el().querySelector('.vjs-error-display');
-            if (!errorDisplay) {
-                errorDisplay = document.createElement('div');
-                errorDisplay.className = 'vjs-error-display';
-                player.el().appendChild(errorDisplay);
-            }
-            errorDisplay.innerHTML = message;
-            errorDisplay.style.display = 'block';
-        }
-
-        player.ready(function () {
-            player.on('error', function (e) {
-                var error = player.error();
-                console.error('Video player error:', error.code, error.message);
-                handlePlayError(error);
+    
+            player.on('waiting', function() {
+                console.log('Player is waiting for data');
             });
-
-            player.on('waiting', function () {
-                console.log('Video is waiting for more data.');
+    
+            player.on('loadedmetadata', function() {
+                console.log('Video metadata loaded');
+                console.log('Video dimensions:', player.videoWidth() + 'x' + player.videoHeight());
             });
-
-            player.on('canplay', function () {
-                console.log('Video can start playing.');
-            });
-
-            player.on('loadstart', function () {
-                console.log('Started to load data.');
-            });
-
-            player.on('loadeddata', function () {
-                console.log('Loaded data.');
-            });
-
-            player.on('canplaythrough', function () {
-                console.log('Can play through without stopping.');
-                retryCount = 0;
-                exponentialBackoff = 1000;
-            });
-
-            player.on('playing', function () {
-                var errorDisplay = player.el().querySelector('.vjs-error-display');
-                if (errorDisplay) {
-                    errorDisplay.style.display = 'none';
-                }
+    
+            player.on('playing', function() {
+                console.log('Video is playing');
             });
         });
-
-        var lastPlayheadPosition = 0;
-        var stallCount = 0;
-        var playbackMonitor = setInterval(function () {
-            if (player.paused() || player.ended()) {
-                return;
-            }
-            if (player.currentTime() === lastPlayheadPosition) {
-                stallCount++;
-                if (stallCount > 10) {
-                    console.log("Playback appears to be stalled. Attempting to recover.");
-                    player.currentTime(player.currentTime() + 0.1);
-                    if (stallCount > 20) {
-                        reloadSource();
-                        stallCount = 0;
-                    }
-                }
-            } else {
-                stallCount = 0;
-            }
-            lastPlayheadPosition = player.currentTime();
-        }, 1000);
-
-        player.on('levelswitch', function (event, data) {
-            console.log('Quality level switched to ' + data.level.height + 'p');
-        });
-
-        var speedSamples = [];
-        player.on('progress', function () {
-            var loadTime = player.buffered().end(0) - player.currentTime();
-            var speed = loadTime > 0 ? (player.bufferedPercent() * 100) / loadTime : 0;
-            speedSamples.push(speed);
-            if (speedSamples.length > 10) speedSamples.shift();
-            var avgSpeed = speedSamples.reduce((a, b) => a + b, 0) / speedSamples.length;
-            console.log('Average network speed: ' + avgSpeed.toFixed(2) + ' Mbps');
-        });
-
-        setInterval(function () {
-            if (player.error()) {
-                console.log('Player is in an error state. Attempting to recover.');
-                handlePlayError(player.error());
-            } else if (!player.paused() && !player.ended()) {
-                if (player.liveTracker && player.liveTracker.isLive()) {
-                    var behindLive = player.liveTracker.liveCurrentTime() - player.currentTime();
-                    if (behindLive > 30) {
-                        console.log('Far behind live edge. Seeking to live.');
-                        player.liveTracker.seekToLiveEdge();
-                    }
-                }
-            }
-        }, 10000);
-
-        document.addEventListener('visibilitychange', function () {
-            if (document.hidden) {
-                player.pause();
-            } else {
-                player.play().catch(function (error) {
-                    console.log("Auto-play on visibility change failed:", error);
-                    handlePlayError(error);
-                });
-            }
-        });
-
-        window.addEventListener('online', function () {
-            console.log('Network is back online. Attempting to resume playback.');
-            reloadSource();
-        });
-
-        window.addEventListener('offline', function () {
-            console.log('Network is offline. Pausing playback.');
-            player.pause();
-            displayCustomError("Network connection lost. Waiting for connection to resume.");
-        });
-
+    
         function checkStreamStatus() {
+            console.log('Checking stream status...');
             fetch('{{ status_check_url }}')
                 .then(response => response.json())
                 .then(data => {
+                    console.log('Stream status:', data);
                     if (data.status === 'ready') {
+                        console.log('Stream is ready. Watch file:', data.watch_file);
                         document.getElementById('loading-indicator').style.display = 'none';
                         document.getElementById('video-player').style.display = 'block';
                         player.src({
                             type: "application/x-mpegURL",
-                            src: data.watch_file
+                            src: data.watch_file + '?_=' + new Date().getTime()
                         });
-                        player.play().catch(function (error) {
-                            console.log("Auto-play failed:", error);
-                            handlePlayError(error);
+                        player.play().catch(function(error) {
+                            console.error("Auto-play failed:", error);
                         });
                     } else {
-                        setTimeout(checkStreamStatus, 5000); // Check again in 5 seconds
+                        console.log('Stream not ready yet. Checking again in 5 seconds.');
+                        setTimeout(checkStreamStatus, 5000);
                     }
                 })
                 .catch(error => {
                     console.error('Error checking stream status:', error);
-                    setTimeout(checkStreamStatus, 5000); // Retry in 5 seconds
+                    setTimeout(checkStreamStatus, 5000);
                 });
         }
-
+    
         // Start checking the stream status
         checkStreamStatus();
     </script>
