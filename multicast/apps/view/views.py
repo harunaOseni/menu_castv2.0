@@ -154,12 +154,12 @@ def detail(request, stream_id):
 
 
 def serve_media_file(request, path):
-    file_path = os.path.join(MEDIA_ROOT, "multicast", "media", "tunnel-files", path)
-    logger.info(f"Requested file path: {file_path}")
+    file_path = os.path.join(MEDIA_ROOT, "tunnel-files", path)
+    print(f"Requested file path: {file_path}")
 
     try:
         if os.path.exists(file_path):
-            logger.info("File exists.")
+            print(f"File exists: {file_path}")
             with open(file_path, "rb") as file_handle:
                 content_type = (
                     "application/vnd.apple.mpegurl"
@@ -177,12 +177,13 @@ def serve_media_file(request, path):
                 )
                 response["Pragma"] = "no-cache"
                 response["Expires"] = "Thu, 01 Jan 1970 00:00:00 GMT"
+                print(f"Serving file: {file_path}")
                 return response
         else:
-            logger.warning("File does not exist at the given path.")
+            print(f"File does not exist at the given path: {file_path}")
             raise Http404("File not found")
     except Exception as e:
-        logger.error(f"Error serving file: {str(e)}")
+        print(f"Error serving file: {str(e)}")
         raise Http404("File not found")
 
 
@@ -206,8 +207,6 @@ def watch(request, stream_id):
 
     if not tunnel.amt_gateway_up:
         open_tunnel.delay(tunnel.id)
-        # tunnel.amt_gateway_up = True
-        # tunnel.save()
     
     if not tunnel.ffmpeg_up:
         start_ffmpeg.delay(tunnel.id)
@@ -232,15 +231,22 @@ def check_stream_status(request, stream_id):
     stream = get_object_or_404(Stream, id=stream_id)
     tunnel = get_object_or_404(Tunnel, stream=stream)
 
-    # Use the correct path for checking files
-    output_file = os.path.join(MEDIA_ROOT, "multicast", "media", "tunnel-files", tunnel.get_filename())
+    output_file = os.path.join(MEDIA_ROOT, "tunnel-files", tunnel.get_filename())
+    print(f"Checking status for stream {stream_id}. Output file: {output_file}")
 
-    if os.path.exists(output_file) and glob.glob(f"{output_file}_*.ts"):
-        return JsonResponse({
-            "status": "ready",
-            "watch_file": f"/media/multicast/media/tunnel-files/{tunnel.get_filename()}",
-        })
+    if os.path.exists(output_file):
+        print(f"M3U8 file exists: {output_file}")
+        ts_files = glob.glob(f"{output_file}_*.ts")
+        print(f"Found {len(ts_files)} TS files")
+        if ts_files:
+            watch_file = f"/media/tunnel-files/{tunnel.get_filename()}"
+            print(f"Stream ready. Watch file URL: {watch_file}")
+            return JsonResponse({
+                "status": "ready",
+                "watch_file": watch_file,
+            })
     
+    print("Stream not ready yet")
     return JsonResponse({"status": "not_ready"})
 
 
