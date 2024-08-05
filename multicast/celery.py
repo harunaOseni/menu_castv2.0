@@ -13,6 +13,7 @@ app.conf.update(
     broker_connection_max_retries=None,
     broker_connection_retry=True,
     broker_connection_timeout=30,
+    broker_connection_retry_on_startup=True,
     result_backend=os.environ.get("REDIS_URL"),
     redis_max_connections=10,
     broker_pool_recycle=3600,
