@@ -123,10 +123,10 @@ def setup_amt_tunnel(relay, amt_port, multicast, source):
         logger.info(f"Received {len(data)} bytes from relay {addr}")
     except socket.timeout:
         logger.error("Timeout: Did not receive any response from the relay")
-        return None, None, None, None, None
+        return False, None, None, None, None
     except Exception as e:
         logger.error(f"Failed to receive data from relay: {e}")
-        return None, None, None, None, None
+        return False, None, None, None, None
 
     logger.debug(f"Sending AMT request to relay {relay_ip}")
     send_amt_request(ip_layer, udp_layer, nonce)
@@ -140,134 +140,82 @@ def setup_amt_tunnel(relay, amt_port, multicast, source):
         )
     except Exception as e:
         logger.error(f"Failed to receive or process membership query: {e}")
-        return None, None, None, None, None
+        return False, None, None, None, None
 
     req = struct.pack("=4sl", socket.inet_aton(multicast), socket.INADDR_ANY)
     s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, req)
 
     logger.debug(f"Sending membership update to relay {relay_ip}")
     send_membership_update(ip_layer, udp_layer, nonce, response_mac, multicast, source)
-    return s, ip_layer, udp_layer, nonce, response_mac
+    return True, s, ip_layer, udp_layer, nonce, response_mac
 
 
 def main(relay, source, multicast, amt_port, udp_port):
-    logger.info(
-        f"Starting AMT tunnel - Relay: {relay}, Source: {source}, Multicast: {multicast}, AMT Port: {amt_port}, UDP Port: {udp_port}"
-    )
-
-    if relay == "amt-relay.m2icast.net":
-        logger.info("Using default relay: amt-relay.m2icast.net")
-    elif relay not in DEFAULT_RELAY_IPS:
-        logger.warning(f"Non-default relay specified: {relay}")
+    logger.info(f"Starting AMT tunnel - Relay: {relay}, Source: {source}, Multicast: {multicast}, AMT Port: {amt_port}, UDP Port: {udp_port}")
 
     packet_count = 0
     last_packet_time = time.time()
-    buffer = []
-    max_buffer_size = 100
-    reconnect_attempts = 0
-    max_reconnect_attempts = 5
     local_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-
-    s, ip_layer, udp_layer, nonce, response_mac = setup_amt_tunnel(
-        relay, amt_port, multicast, source
-    )
-    if s is None:
-        logger.error("Failed to set up initial AMT tunnel. Exiting.")
-        sys.exit(1)
-
-    last_resource_check = time.time()
-    resource_check_interval = 60
-    high_resource_count = 0
-    max_high_resource_count = 5
+    relay_index = 0
+    max_reconnect_attempts = 5
+    reconnect_delay = 5
 
     while True:
-        try:
-            data, _ = s.recvfrom(DEFAULT_MTU)
-            amt_packet = AMT_Multicast_Data(data)
-            raw_udp = bytes(amt_packet[UDP].payload)
-
-            buffer.append(raw_udp)
-            if len(buffer) > max_buffer_size:
-                buffer.pop(0)
-
-            local_socket.sendto(raw_udp, (LOCAL_LOOPBACK, udp_port))
-
-            packet_count += 1
-            last_packet_time = time.time()
-            reconnect_attempts = 0
-
-            if packet_count % 1000 == 0:
-                logger.info(f"Received and forwarded {packet_count} packets")
-
-        except socket.timeout:
-            current_time = time.time()
-            if current_time - last_packet_time > 10:
-                logger.warning(
-                    "No data received for 10 seconds, attempting to reconnect"
-                )
-                reconnect_attempts += 1
-                if reconnect_attempts > max_reconnect_attempts:
-                    logger.error(
-                        "Max reconnection attempts reached. Trying a different relay IP."
-                    )
-                    relay = DEFAULT_RELAY  # Force using a random default relay IP
-                    reconnect_attempts = 0
-
-                s, ip_layer, udp_layer, nonce, response_mac = setup_amt_tunnel(
-                    relay, amt_port, multicast, source
-                )
-                if s is not None:
-                    logger.info(
-                        f"AMT tunnel re-established successfully with relay {ip_layer.dst}"
-                    )
-                    last_packet_time = time.time()
-                else:
-                    logger.error(
-                        f"Failed to re-establish AMT tunnel with relay {ip_layer.dst}"
-                    )
-
-        except Exception as err:
-            logger.error(f"Error occurred in processing packet: {err}")
-
-        if time.time() - last_packet_time > 30:
+        reconnect_attempts = 0
+        while reconnect_attempts < max_reconnect_attempts:
             try:
-                heartbeat_packet = ip_layer / udp_layer / AMT_Membership_Update()
-                send(heartbeat_packet)
-                logger.debug("Sent heartbeat packet")
+                current_relay = DEFAULT_RELAY_IPS[relay_index] if relay == DEFAULT_RELAY else relay
+                success, s, ip_layer, udp_layer, nonce, response_mac = setup_amt_tunnel(current_relay, amt_port, multicast, source)
+
+                if not success:
+                    logger.warning(f"Failed to set up AMT tunnel with relay {current_relay}. Trying next relay.")
+                    relay_index = (relay_index + 1) % len(DEFAULT_RELAY_IPS)
+                    reconnect_attempts += 1
+                    time.sleep(reconnect_delay)
+                    continue
+
+                logger.info(f"AMT tunnel established with relay {current_relay}")
+
+                while True:
+                    try:
+                        data, _ = s.recvfrom(DEFAULT_MTU)
+                        amt_packet = AMT_Multicast_Data(data)
+                        raw_udp = bytes(amt_packet[UDP].payload)
+                        local_socket.sendto(raw_udp, (LOCAL_LOOPBACK, udp_port))
+
+                        packet_count += 1
+                        last_packet_time = time.time()
+
+                        if packet_count % 1000 == 0:
+                            logger.info(f"Received and forwarded {packet_count} packets")
+
+                    except socket.timeout:
+                        if time.time() - last_packet_time > 30:
+                            logger.warning("No data received for 30 seconds, sending heartbeat")
+                            try:
+                                heartbeat_packet = ip_layer / udp_layer / AMT_Membership_Update()
+                                send(heartbeat_packet)
+                            except Exception as e:
+                                logger.error(f"Failed to send heartbeat: {e}")
+                                raise  # Re-raise to trigger reconnection
+
+                    except Exception as err:
+                        logger.error(f"Error occurred in processing packet: {err}")
+                        raise  # Re-raise to trigger reconnection
+
             except Exception as e:
-                logger.error(f"Failed to send heartbeat: {e}")
+                logger.error(f"AMT tunnel error: {e}. Attempting to reconnect.")
+                if s:
+                    s.close()
+                reconnect_attempts += 1
+                time.sleep(reconnect_delay)
 
-        if time.time() - last_resource_check > resource_check_interval:
-            cpu_percent, memory_percent = monitor_resources()
-            last_resource_check = time.time()
-
-            if cpu_percent > 90 or memory_percent > 90:
-                high_resource_count += 1
-                if high_resource_count >= max_high_resource_count:
-                    logger.error(
-                        f"Consistently high resource usage detected. CPU: {cpu_percent}%, Memory: {memory_percent}%. Attempting to restart AMT tunnel."
-                    )
-                    relay = DEFAULT_RELAY  # Force using a random default relay IP
-                    s, ip_layer, udp_layer, nonce, response_mac = setup_amt_tunnel(
-                        relay, amt_port, multicast, source
-                    )
-                    if s is not None:
-                        logger.info(
-                            f"AMT tunnel restarted successfully with relay {ip_layer.dst} due to high resource usage"
-                        )
-                        high_resource_count = 0
-                    else:
-                        logger.error(
-                            f"Failed to restart AMT tunnel with relay {ip_layer.dst} after high resource usage"
-                        )
-                        break
-            else:
-                high_resource_count = 0
-
-        time.sleep(0.001)
+        logger.error(f"Failed to reconnect after {max_reconnect_attempts} attempts. Exiting.")
+        break
 
     logger.info("Exiting AMT tunnel")
-    s.close()
+    if s:
+        s.close()
     local_socket.close()
 
 
